@@ -2,7 +2,7 @@
 // belongs in the code editor it can open.
 import { div, image } from "gpui-kit";
 import { h_flex, v_flex, Editor, EditorState, Scrollbar, v_virtual_list } from "gpui-base";
-import { appHome, exec, focused, layout, panes, readTextFile, setShared, shared, theme } from "herdr";
+import { appHome, exec, focused, layout, panes, readTextFile, setShared, shared, theme, window } from "herdr";
 import {
   baseName,
   buildRows,
@@ -19,6 +19,7 @@ import {
 } from "../files/model.js";
 import { WHOLE_FILE_LINES, highlightLines, languageOf as lexerLanguage, syntaxColors, tokenizeLine } from "../syntax.js";
 import { viewerEntries } from "../actions/open.js";
+import { pickCopyImage } from "../files/shell.js";
 import { foundEditors } from "../actions/outside.js";
 import { fileIcon, isLight } from "../files/file-icons.js";
 import { TEXT, FileIcon, Markdown, Message, MenuButton, TextButton, codeFont, codeSize } from "./ui.js";
@@ -27,10 +28,6 @@ const CHAR_WIDTH = 0.62; // Of the code font's size, to size the sideways scroll
 const LINE_COLUMNS = 6; // The number column and a margin, in the same units.
 const rowHeight = () => Math.round(codeSize() * 1.6);
 const REMOVED_ROW = 8;
-
-// $1 the file, $2 its copy, $3 the copy of what this tab showed before. No file name reaches
-// the script itself, and only the cache's own copies are ever removed.
-const COPY_IMAGE = `[ -z "$3" ] || rm -f -- "$3"; mkdir -p -- "$(dirname -- "$2")" && { cmp -s -- "$1" "$2" || cp -- "$1" "$2"; }`;
 
 export const viewerMethods = {
   // What this tab shows: the registry, then what it was opened with, after a restart.
@@ -382,11 +379,8 @@ export const viewerMethods = {
     this.imageOld = null;
     this.reading = true;
     cx.spawn(async (cx) => {
-      const result = await exec(
-        "sh",
-        ["-c", COPY_IMAGE, "copy-image", file.path, `${appHome()}/${copy}`, old],
-        {},
-      ).catch(() => null);
+      const { program, args } = pickCopyImage(file.path, `${appHome()}/${copy}`, old, window()?.platform);
+      const result = await exec(program, args, {}).catch(() => null);
       this.reading = false;
       if (this.file?.path !== file.path) return;
       const problem = result?.code === 0 ? null : "This file is no longer available.";
@@ -447,7 +441,8 @@ export const viewerMethods = {
       const copy = this.markdownCopies.get(path);
       this.markdownCopying.add(path);
       cx.spawn(async (cx) => {
-        const result = await exec("sh", ["-c", COPY_IMAGE, "copy-image", path, `${appHome()}/${copy}`, ""], {}).catch(() => null);
+        const { program, args } = pickCopyImage(path, `${appHome()}/${copy}`, "", window()?.platform);
+        const result = await exec(program, args, {}).catch(() => null);
         this.markdownCopying.delete(path);
         const shown = result?.code === 0;
         if (this.markdownShown.get(path) !== shown) {

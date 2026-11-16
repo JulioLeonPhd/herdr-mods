@@ -14,10 +14,11 @@
 // colours: syntax.js colours the file view's code, and Better Changes has the same file.
 import { View } from "gpui-kit";
 import { TextareaState } from "gpui-base";
-import { appHome, exec, nextCommand, props, setShared, shared, spaces } from "herdr";
+import { appHome, exec, nextCommand, props, setShared, shared, spaces, window } from "herdr";
 import { loadSettings, duration } from "./settings.js";
 import { followFileIcons } from "./files/file-icons.js";
 import { readMethods } from "./files/reads.js";
+import { pickRm } from "./files/shell.js";
 import { openMethods } from "./actions/open.js";
 import { outsideMethods } from "./actions/outside.js";
 import { agentMethods } from "./actions/agents.js";
@@ -106,7 +107,10 @@ class BetterFiles extends View {
   // A closing tab takes its copies of images with it.
   async close() {
     const copies = [this.imageCopy, ...(this.markdownCopies?.values() ?? [])].filter(Boolean);
-    if (copies.length) await exec("rm", ["-f", "--", ...copies.map((c) => `${appHome()}/${c}`)], {}).catch(() => {});
+    if (copies.length) {
+      const { program, args } = pickRm(copies.map((c) => `${appHome()}/${c}`), window()?.platform);
+      await exec(program, args, {}).catch(() => {});
+    }
   }
 
   // Keeps up with the focused pane, tabs closing, and questions left by the menu.

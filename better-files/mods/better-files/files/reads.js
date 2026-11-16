@@ -1,13 +1,14 @@
 // Reading the folder tree, and Git's view of it, for the focused pane's folder.
-import { spaces, panes, focused, exec, watchFolder } from "herdr";
+import { spaces, panes, focused, exec, watchFolder, window } from "herdr";
 import { PER_FOLDER, parseStatus, sortEntries } from "./model.js";
+import { pickListing } from "./shell.js";
 
 // Each read of a folder is bounded, and the names come back null-separated, so no file name
-// can break the list. Adapted from Herdr's shipped Files mod.
-// shortcut: needs `sh`, so a Windows machine shows an error; add a PowerShell listing if one is used.
+// can break the list. Adapted from Herdr's shipped Files mod; platform branching (sh vs
+// PowerShell 5.1) lives in shell.js.
 async function directory(path, on) {
-  const script = `n=0; for p in "$1"/* "$1"/.[!.]* "$1"/..?*; do [ -e "$p" ] || [ -L "$p" ] || continue; name=\${p##*/}; [ "$name" = .git ] && continue; if [ -d "$p" ]; then kind=d; else kind=f; fi; printf "%s\\0%s\\0" "$kind" "$name"; n=$((n+1)); [ "$n" -gt ${PER_FOLDER} ] && break; done; test -d "$1"`;
-  const r = await exec("sh", ["-c", script, "files", path], { on });
+  const { program, args } = pickListing(path, PER_FOLDER, window()?.platform);
+  const r = await exec(program, args, { on });
   if (r.code !== 0) throw new Error(r.stderr || "Cannot list this folder.");
   const fields = r.stdout.split("\0");
   const out = [];

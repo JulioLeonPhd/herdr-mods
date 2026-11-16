@@ -6,11 +6,12 @@ export const MAX_CHARS = 400000;
 // Editors found by app ID: a Nix or per-user install isn't in /Applications.
 // More can be added under `settings.editors` in mod.json.
 export const EDITORS = [
-  { name: "Zed", bundle: "dev.zed.Zed" },
-  { name: "VS Code", bundle: "com.microsoft.VSCode" },
-  { name: "Cursor", bundle: "com.todesktop.230313mzl4w4u92" },
-  { name: "Windsurf", bundle: "com.exafunction.windsurf" },
-  { name: "Sublime Text", bundle: "com.sublimetext.4" },
+  { name: "Zed", bundle: "dev.zed.Zed", exe: "Zed.exe" },
+  { name: "VS Code", bundle: "com.microsoft.VSCode", exe: "Code.exe" },
+  { name: "Cursor", bundle: "com.todesktop.230313mzl4w4u92", exe: "Cursor.exe" },
+  { name: "Windsurf", bundle: "com.exafunction.windsurf", exe: "Windsurf.exe" },
+  { name: "Sublime Text", bundle: "com.sublimetext.4", exe: "sublime_text.exe" },
+  // Nova is macOS-only, no Windows executable
   { name: "Nova", bundle: "com.panic.Nova" },
 ];
 
