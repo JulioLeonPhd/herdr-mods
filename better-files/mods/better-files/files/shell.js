@@ -147,5 +147,12 @@ export function pickDetectEditors(baseEditors, extra, platform) {
   if (isWin(platform)) {
     return { kind: "single", ...detectEditorsPs([...baseEditors, ...extra]) };
   }
-  return { kind: "perEditor", editors: [...baseEditors, ...extra] };
+  return {
+    kind: "perEditor",
+    probes: [...baseEditors, ...extra].map((e) => ({
+      editor: e,
+      program: "mdfind",
+      args: [`kMDItemCFBundleIdentifier == '${String(e.bundle).replace(/'/g, "")}'`],
+    })),
+  };
 }

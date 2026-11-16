@@ -21,28 +21,18 @@ export const outsideMethods = {
   // dirs for every candidate; first hit wins. Both store { name, bundle } or
   // { name, exe } entries in shared state.
   findEditors(cx, extra = []) {
-    const platform = window()?.platform;
-    if (platform === "windows") {
-      cx.spawn(async (cx) => {
-        const { program, args } = pickDetectEditors(EDITORS, extra, platform);
-        const r = await exec(program, args, {}).catch(() => null);
-        const fields = r?.code === 0 ? r.stdout.split("\0") : [];
-        const found = [];
-        for (let i = 0; i + 1 < fields.length; i += 2) found.push({ name: fields[i], exe: fields[i + 1] });
-        setShared(FOUND, found);
-        cx.notify();
-      });
-      return;
-    }
+    const pick = pickDetectEditors(EDITORS, extra, window()?.platform);
     cx.spawn(async (cx) => {
       const found = [];
-      for (const editor of [...EDITORS, ...extra]) {
-        const r = await exec(
-          "mdfind",
-          [`kMDItemCFBundleIdentifier == '${String(editor.bundle).replace(/'/g, "")}'`],
-          {},
-        ).catch(() => null);
-        if (r?.code === 0 && r.stdout.trim()) found.push(editor);
+      if (pick.kind === "single") {
+        const r = await exec(pick.program, pick.args, {}).catch(() => null);
+        const fields = r?.code === 0 ? r.stdout.split("\0") : [];
+        for (let i = 0; i + 1 < fields.length; i += 2) found.push({ name: fields[i], exe: fields[i + 1] });
+      } else {
+        for (const probe of pick.probes) {
+          const r = await exec(probe.program, probe.args, {}).catch(() => null);
+          if (r?.code === 0 && r.stdout.trim()) found.push(probe.editor);
+        }
       }
       setShared(FOUND, found);
       cx.notify();
@@ -77,8 +67,8 @@ export const outsideMethods = {
 
   // Runs the platform's open command; a failure lands in the shared error slot the
   // sidebar renders as a message.
-  async outside(pick, what) {
-    const r = await exec(pick.program, pick.args, {}).catch((e) => ({ code: 1, stderr: String(e) }));
+  async outside(cmd, what) {
+    const r = await exec(cmd.program, cmd.args, {}).catch((e) => ({ code: 1, stderr: String(e) }));
     if (r.code !== 0) setShared(ERROR, `Could not ${what}: ${r.stderr?.trim() || "it failed"}`);
     else setShared(ERROR, null);
   },

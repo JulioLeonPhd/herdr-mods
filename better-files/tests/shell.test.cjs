@@ -203,8 +203,12 @@ test('pickDetectEditors macOS returns perEditor with all editors including Nova'
   const { pickDetectEditors } = await load();
   const r = pickDetectEditors(EDITORS, [], 'macos');
   assert.equal(r.kind, 'perEditor');
-  assert.equal(r.editors.length, 6);
-  assert.ok(r.editors.some(e => e.name === 'Nova'));
+  assert.equal(r.probes.length, 6);
+  assert.ok(r.probes.some(p => p.editor.name === 'Nova'));
+  // Byte-for-byte pin: mdfind command unchanged from pre-port
+  const zed = r.probes.find(p => p.editor.name === 'Zed');
+  assert.equal(zed.program, 'mdfind');
+  assert.deepEqual(zed.args, ["kMDItemCFBundleIdentifier == 'dev.zed.Zed'"]);
 });
 
 test('pickDetectEditors windows returns single with PS script, excludes Nova', async () => {
@@ -253,6 +257,6 @@ test('pickDetectEditors windows passes through extra editors on macOS too', asyn
   const { pickDetectEditors } = await load();
   const extra = [{ name: 'Emacs', bundle: 'org.gnu.Emacs' }];
   const r = pickDetectEditors(EDITORS, extra, 'macos');
-  assert.equal(r.editors.length, 7);
-  assert.ok(r.editors.some(e => e.name === 'Emacs'));
+  assert.equal(r.probes.length, 7);
+  assert.ok(r.probes.some(p => p.editor.name === 'Emacs'));
 });
