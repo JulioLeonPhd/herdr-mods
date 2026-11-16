@@ -44,7 +44,7 @@ One-line `-Command` candidate for PowerShell 5.1; receives source, destination, 
 $src=$args[0];$dst=$args[1];$old=$args[2];try{if($old){Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue};$parent=Split-Path -Parent $dst;New-Item -ItemType Directory -Force -Path $parent -ErrorAction Stop|Out-Null;if(-not(Test-Path -LiteralPath $src -PathType Leaf)){exit 1};$copy=$true;if(Test-Path -LiteralPath $dst -PathType Leaf){$copy=(Get-FileHash -LiteralPath $src -Algorithm SHA256 -ErrorAction Stop).Hash -ne (Get-FileHash -LiteralPath $dst -Algorithm SHA256 -ErrorAction Stop).Hash};if($copy){Copy-Item -LiteralPath $src -Destination $dst -Force -ErrorAction Stop};exit 0}catch{exit 1}
 ```
 
-Intended invocation: `exec("powershell", ["-NoProfile", "-NoLogo", "-Command", <script>, src, dest, old])`; pass `old` as an empty string when absent. Old-copy deletion precedes parent creation and source check, matching the current order. Exit 0 only on success; exit 1 for absent/unreadable source or other copy failure.
+Intended invocation: `exec("powershell", ["-NoProfile", "-NoLogo", "-Command", `& { <script> } '${psQuote(src)}' '${psQuote(dest)}' '${psQuote(old)}'`])`; pass `old` as an empty string when absent (renders as `''` in the command). The `& { … }` scriptblock wrapper is **required** on PS 5.1, which appends bare `-Command` arguments to the command text instead of binding them to `$args` (fixed in pwsh 7). Old-copy deletion precedes parent creation and source check, matching the current order. Exit 0 only on success; exit 1 for absent/unreadable source or other copy failure.
 
 ## 3. PowerShell candidate (cache cleanup twin)
 
@@ -54,7 +54,7 @@ One-line `-Command` candidate for the current `rm -f -- ...paths` call:
 try{foreach($p in $args){Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue}}catch{};exit 0
 ```
 
-Invoke `powershell` with `-NoProfile -NoLogo -Command <script>` followed by the paths. The script suppresses missing-path and removal errors and always returns 0, mirroring the awaited JS call's `.catch(() => {})` behavior. `main.js:109` currently asks `exec` to launch `rm` directly; a missing Windows program is the same ignored-rejection class as the `sh` blocker.
+Invoke: `exec("powershell", ["-NoProfile", "-NoLogo", "-Command", `& { <script> } '${paths.map(psQuote).join("' '")}'`])`. The `& { … }` wrapper ensures paths arrive as `$args` on PS 5.1. The script suppresses missing-path and removal errors and always returns 0, mirroring the awaited JS call's `.catch(() => {})` behavior. `main.js:109` currently asks `exec` to launch `rm` directly; a missing Windows program is the same ignored-rejection class as the `sh` blocker.
 
 ## 4. Box test block
 
@@ -68,19 +68,20 @@ $root=Join-Path $env:TEMP 'wf-copy-fixture';Remove-Item -LiteralPath $root -Recu
 $srcDir=Join-Path $root 'src';$cache=Join-Path $root 'cache';New-Item -ItemType Directory -Force -Path $srcDir,$cache|Out-Null
 $src=Join-Path $srcDir 'input';$dest=Join-Path $cache 'fresh'
 function Check($name,$ok){if($ok){"PASS $name"}else{"FAIL $name"}}
-function Run-Copy($s,$d,$o){& powershell.exe -NoProfile -NoLogo -Command $CopyScript $s $d $o;return $LASTEXITCODE}
+function Q($s){ "'" + ([string]$s -replace "'","''") + "'" }
+function Run-Copy($s,$d,$o){& powershell.exe -NoProfile -NoLogo -Command ("& { " + $CopyScript + " } " + (Q $s) + " " + (Q $d) + " " + (Q $o));return $LASTEXITCODE}
 [IO.File]::WriteAllText($src,'fresh');$code=Run-Copy $src $dest '';Check 'fresh copy' ($code -eq 0 -and [IO.File]::ReadAllText($dest) -eq 'fresh')
 $dest=Join-Path $cache 'changed';[IO.File]::WriteAllText($dest,'old');[IO.File]::WriteAllText($src,'changed');$code=Run-Copy $src $dest '';Check 'changed source replaces destination' ($code -eq 0 -and [IO.File]::ReadAllText($dest) -eq 'changed')
 $dest=Join-Path $cache 'identical';[IO.File]::WriteAllText($src,'identical');Copy-Item -LiteralPath $src -Destination $dest;$fixed=[DateTime]::UtcNow.AddDays(-5);[IO.File]::SetLastWriteTimeUtc($dest,$fixed);$before=[IO.File]::GetLastWriteTimeUtc($dest).Ticks;$code=Run-Copy $src $dest '';$after=[IO.File]::GetLastWriteTimeUtc($dest).Ticks;Check 'identical source leaves mtime unchanged' ($code -eq 0 -and $before -eq $after)
 $old=Join-Path $cache 'old';$dest=Join-Path $cache 'with-old';[IO.File]::WriteAllText($old,'old-cache');[IO.File]::WriteAllText($src,'replacement');$code=Run-Copy $src $dest $old;Check 'existing old copy deleted' ($code -eq 0 -and -not(Test-Path -LiteralPath $old) -and [IO.File]::ReadAllText($dest) -eq 'replacement')
 $keep=Join-Path $cache 'keep';$dest=Join-Path $cache 'empty-old';[IO.File]::WriteAllText($keep,'keep');$code=Run-Copy $src $dest '';Check 'empty old argument deletes nothing' ($code -eq 0 -and (Test-Path -LiteralPath $keep) -and [IO.File]::ReadAllText($keep) -eq 'keep')
 $missing=Join-Path $srcDir 'missing';$dest=Join-Path $cache 'missing';$code=Run-Copy $missing $dest '';Check 'missing source fails without destination' ($code -ne 0 -and -not(Test-Path -LiteralPath $dest))
-$cleanupPath=Join-Path $cache 'cleanup';[IO.File]::WriteAllText($cleanupPath,'remove');& powershell.exe -NoProfile -NoLogo -Command $CleanupScript $cleanupPath (Join-Path $cache 'absent');$cleanupCode=$LASTEXITCODE;Check 'cache cleanup removes existing and ignores missing paths' ($cleanupCode -eq 0 -and -not(Test-Path -LiteralPath $cleanupPath))
+$cleanupPath=Join-Path $cache 'cleanup';[IO.File]::WriteAllText($cleanupPath,'remove');& powershell.exe -NoProfile -NoLogo -Command ("& { " + $CleanupScript + " } " + (Q $cleanupPath) + " " + (Q (Join-Path $cache 'absent')));$cleanupCode=$LASTEXITCODE;Check 'cache cleanup removes existing and ignores missing paths' ($cleanupCode -eq 0 -and -not(Test-Path -LiteralPath $cleanupPath))
 ```
 
 ## 5. Limits
 
-Syntax and runtime are unverified: the authoring Mac has no `pwsh`/Windows PowerShell. The candidate uses `Get-FileHash` rather than `cmp -s`; this is a hash-based simplification of byte comparison (SHA-256 collision risk is negligible, but it is not literal byte equality). The Windows box run must confirm PowerShell 5.1 parsing, exit-code propagation through Herdr's `exec`, and that argument 3 arrives as an empty string when passed as `""` (not as a literal `-`). It must also confirm the candidate's `$args` argv plumbing with the specified `-Command` invocation; no PowerShell evidence is claimed here.
+**Box-verified 2026-11-16** (UTM Win11 ARM, PS 5.1). All seven checks pass: fresh copy, changed-source replace, identical-source skip (mtime preserved), old-copy deletion, empty-old no-op, missing-source failure (exit 1, no dest), cleanup (removes existing, ignores absent, exit 0). Mixed-separator paths (`C:\…/cache/…`) work without normalization. The `& { … }` scriptblock wrapper is **required** on PS 5.1 (bare `-Command <script> <arg1> <arg2>` appends args into the command text instead of binding `$args`). The candidate uses `Get-FileHash` rather than `cmp -s`; this is a hash-based simplification of byte comparison (SHA-256 collision risk negligible, not literal byte equality).
 
 Real Mac `sh` observations: exact script used was `[ -z "$3" ] || rm -f -- "$3"; mkdir -p -- "$(dirname -- "$2")" && { cmp -s -- "$1" "$2" || cp -- "$1" "$2"; }`, run with `sh -c "$COPY_IMAGE" copy-image src dest old` against `/tmp/wf-copy-fixture`.
 

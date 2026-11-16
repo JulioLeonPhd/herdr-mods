@@ -22,10 +22,14 @@ async function directory(path, on) {
 PowerShell 5.1-compatible single-line `-Command` script; the path is `$args[0]`, matching the trailing `path` argument in this invocation:
 
 ```text
-exec("powershell", ["-NoProfile", "-NoLogo", "-Command", "[Console]::OutputEncoding=[Text.Encoding]::UTF8; $p=$args[0]; if (-not (Test-Path -LiteralPath $p -PathType Container)) { [Console]::Error.WriteLine('Cannot list this folder.'); exit 1 }; Get-ChildItem -LiteralPath $p -Force | Where-Object { $_.Name -ne '.git' } | Select-Object -First 500 | ForEach-Object { $k=if ($_.PSIsContainer) {'d'} else {'f'}; [Console]::Out.Write($k + [char]0 + $_.Name + [char]0) }", path], { on })
+exec("powershell", ["-NoProfile", "-NoLogo", "-Command", `& { [Console]::OutputEncoding=[Text.Encoding]::UTF8; $p=$args[0]; if (-not (Test-Path -LiteralPath $p -PathType Container)) { [Console]::Error.WriteLine('Cannot list this folder.'); exit 1 }; Get-ChildItem -LiteralPath $p -Force | Where-Object { $_.Name -ne '.git' } | Select-Object -First 500 | ForEach-Object { $k=if ($_.PSIsContainer) {'d'} else {'f'}; [Console]::Out.Write($k + [char]0 + $_.Name + [char]0) } } '${psQuote(path)}'`], { on })
 ```
 
+`psQuote(s)` wraps a path in single quotes and doubles any embedded single quotes: `"' " + s.replace(/'/g, "''") + "' "`.
+
 The UTF-8 output encoding leaves NUL bytes as `0x00`; `Console.Out.Write` avoids adding line breaks. `Get-ChildItem -Force` includes dotfiles, `.git` is filtered out, and `Select-Object -First 500` bounds emitted records.
+
+**Invocation shape (box-verified 2026-11-16, PS 5.1):** PowerShell 5.1 appends trailing `-Command` arguments to the command string rather than binding them to `$args` (corrected in pwsh 7). The `& { … } '<arg>'` scriptblock wrapper routes the path through `$args` correctly on both 5.1 and 7+.
 
 ## 3. Golden output
 
@@ -95,4 +99,4 @@ if ($mp.ExitCode -ne 0) { 'PASS: missing folder exit is non-zero (' + $mp.ExitCo
 
 ## 5. Limits
 
-Candidate syntax is **unverified**: the authoring Mac has no PowerShell. The UTM box run must confirm the candidate parses and runs on Windows PowerShell 5.1, NUL bytes survive console → pipe → Node capture (the block’s file capture is an initial byte check), UTF-8 names round-trip, `-Force` includes dotfiles, `.git` stays excluded, and exit-code propagation through Herdr `exec` works. Also decide whether to preserve the shell source’s 501st-entry off-by-one and empty-stderr behavior, or adopt the explicitly requested 500-entry cap and stderr diagnostic shown here.
+**Box-verified 2026-11-16** (UTM Win11 ARM, PS 5.1). All checks pass: NUL-delimited pairs intact, UTF-8 names round-trip (`café.txt` ✓), `-Force` includes dotfiles, `.git` excluded, exact-500 cap enforced (512 → 500), missing folder → exit 1 + stderr diagnostic, exit 0 on success. Mixed-separator paths work without normalization. The `& { … }` scriptblock invocation is **required** on PS 5.1; bare `-Command <script> <arg>` appends the arg into the command text instead of binding `$args`.
