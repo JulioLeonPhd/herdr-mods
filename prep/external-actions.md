@@ -158,7 +158,7 @@ Set-Content -LiteralPath $file -Value 'probe'
 $arg = "'" + $file + "'"
 $cmd = "& { 'arg0=[' + `$args[0] + ']' } " + $arg
 $out = powershell.exe -NoProfile -NoLogo -Command $cmd
-'argwrap(spaces): ' + $(if ($out.Trim() -eq ('arg0[' + $file + ']')) { 'PASS' } else { 'FAIL: ' + $out })
+'argwrap(spaces): ' + $(if ($out.Trim() -eq ('arg0=[' + $file + ']')) { 'PASS' } else { 'FAIL: ' + $out })
 
 # 3. detection matrix: which source sees which candidate exe
 $wellKnown = @{
@@ -198,4 +198,4 @@ Start-Process explorer.exe -ArgumentList @('/select,"<fixture file>"') # Explore
 - Store/UWP installs of an editor are not detectable (no App Paths/PATH entry) → no menu item.
 - A literal `"` in a path breaks the `/select,"…"` reveal argument (rare; documented, no workaround chosen).
 - A path deleted between listing and click: `explorer /select` exits 0 without a selection; `Invoke-Item` errors into the existing ERROR path. No pre-check added.
-- **Verification status:** unverified. The box has no editors installed; the probe first verifies mechanics (spaces in the path, the `& { … } '<arg>'` wrapper, matrix shape), the positive detection and launch paths after the optional install.
+- **Verification status:** mechanics box-verified 2026-11-16 (PS 5.1, clean Win11 ARM box): fixture-with-spaces PASS, `& { … } '<arg>'` wrapper delivers a spaced path as a single `$args[0]` PASS, detection matrix runs clean (all-empty, no editors installed), cleanup PASS. Positive detection + launch path unverified (no editor on box; optional VS Code install skipped) — residual risk mitigated by keeping all three detection sources with first-hit-wins, so a wrong "known dir" guess only loses one fallback. See #7 comment.
