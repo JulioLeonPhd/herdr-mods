@@ -79,14 +79,15 @@ $checks = @(
 foreach ($c in $checks) {
   if ($c.Test) { "PASS  $($c.Name)" } else { "FAIL  $($c.Name)" }
 }
-# Editor check (any of the five)
+# Editor check (any of the five; PATH only — the #7 matrix probe covers registry + known dirs)
 $editorExes = @('Code.exe','Cursor.exe','Zed.exe','Windsurf.exe','sublime_text.exe')
-$found = $editorExes | Where-Object {
+$found = foreach ($exe in $editorExes) {
   $p = [Environment]::GetEnvironmentVariable('PATH','Machine').Split(';') +
        [Environment]::GetEnvironmentVariable('PATH','User').Split(';')
-  ($p | Where-Object { $_ -and (Test-Path -LiteralPath (Join-Path $_ $_ )) }) -ne $null
+  $hit = @($p | Where-Object { $_ -and (Test-Path -LiteralPath (Join-Path $_ $exe)) }) | Select-Object -First 1
+  if ($hit) { $exe }
 }
-if ($found) { "INFO  Editor found: $found" } else { "SKIP  No editor installed (S7 will be SKIPPED)" }
+if ($found) { "INFO  Editor on PATH: $found" } else { "SKIP  No editor on PATH (S7 may still pass via App Paths / known dirs — see #7 matrix)" }
 ```
 
 ---
