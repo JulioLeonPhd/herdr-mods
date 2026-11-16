@@ -75,15 +75,15 @@ for ($i = 0; $i + 1 -lt $fields.Length; $i += 2) { if ($fields[$i] -ne '' -or $f
 'Entries: ' + (($records | ForEach-Object { $_.Kind + ':' + $_.Name }) -join ', ')
 if ($p.ExitCode -eq 0) { 'PASS: existing folder exit code 0' } else { 'FAIL: existing folder exit code=' + $p.ExitCode }
 if (($records.Name -contains 'a.md') -and ($records.Name -contains 'weird name.txt') -and ($records.Name -contains 'café.txt') -and ($records.Name -contains 'sub') -and ($records.Name -contains 'emptydir') -and ($records.Name -contains '.hidden') -and ($records.Name -contains '..dot')) { 'PASS: expected files and directories present' } else { 'FAIL: expected files/directories missing' }
-if (($records.Name -notcontains '.git') -and ($records.Name -notcontains 'secret.txt') -and ($records.Count -eq 8)) { 'PASS: .git absent, 8 entries' } else { 'FAIL: .git leaked or count wrong (' + $records.Count + ')' }
-# Second run: cap. Add 505 more files (513 total), assert exactly 500 records.
+if (($records.Name -notcontains '.git') -and ($records.Name -notcontains 'secret.txt') -and ($records.Count -eq 7)) { 'PASS: .git absent, 7 entries' } else { 'FAIL: .git leaked or count wrong (' + $records.Count + ')' }
+# Second run: cap. Add 505 more files (512 total), assert exactly 500 records.
 1..505 | ForEach-Object { New-Item -ItemType File -Path (Join-Path $root ('cap-{0:D3}.txt' -f $_)) -Force | Out-Null }
 $capOut = Join-Path $env:TEMP 'wf-list-cap.stdout'
 $p2 = Start-Process -FilePath $exe -ArgumentList @('-NoProfile', '-NoLogo', '-Command', "& '$scriptPath' '$root'") -Wait -PassThru -NoNewWindow -RedirectStandardOutput $capOut -RedirectStandardError (Join-Path $env:TEMP 'wf-list-cap.stderr')
 $capFields = ([Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($capOut))).Split([char]0)
 $capCount = 0
 for ($i = 0; $i + 1 -lt $capFields.Length; $i += 2) { if ($capFields[$i] -ne '' -or $capFields[$i + 1] -ne '') { $capCount++ } }
-if ($capCount -eq 500) { 'PASS: cap respected (500 of 513)' } else { 'FAIL: cap count=' + $capCount }
+if ($capCount -eq 500) { 'PASS: cap respected (500 of 512)' } else { 'FAIL: cap count=' + $capCount }
 if ($p2.ExitCode -eq 0) { 'PASS: capped run exit code 0' } else { 'FAIL: capped run exit code=' + $p2.ExitCode }
 # Third run: missing folder — non-zero exit, diagnostic on stderr.
 $missing = Join-Path $env:TEMP 'wf-list-missing'
