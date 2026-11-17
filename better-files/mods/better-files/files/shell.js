@@ -94,7 +94,7 @@ export function pickReveal(path, platform) {
   if (isWin(platform)) {
     return {
       program: "powershell.exe",
-      args: ["-NoProfile", "-NoLogo", "-Command", `& { explorer.exe ('/select,"' + $args[0] + '"') } ${psQuote(path)}`],
+      args: ["-NoProfile", "-NoLogo", "-Command", `& { explorer.exe "/select,$($args[0].Replace('/', [char]92))" } ${psQuote(path)}`],
     };
   }
   return { program: "open", args: ["-R", path] };
