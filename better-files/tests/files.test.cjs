@@ -22,7 +22,7 @@ const TREE = { '/repo': [['d', 'src'], ['f', 'b.md'], ['f', 'a.md']], '/repo/src
 function world({ copyImage, diff = '', layout = {}, mode = 'sidebar', viewer, file, target, tree = TREE, status = ' M b.md\0M  src/main.go\0?? new.txt\0', editors = ['dev.zed.Zed'], top = '/repo', machine = null, cwd = '/repo', texts = {}, agents = [], known = [], sharedInit = {}, hcResult } = {}) {
   const store = new Map(Object.entries(sharedInit));
   const ran = [], execs = [], sent = [], clipboard = [], closed = [], overlays = [], urls = [];
-  const live = { layout, panes: [{ pane: 'p1', tab: 'tab1', cwd }], focused: { space: 's', tab: 'tab1', pane: 'p1', cwd }, agents, texts: { ...texts } };
+  const live = { layout, panes: [{ pane: 'p1', tab: 'tab1', cwd, terminal: 'term1' }], focused: { space: 's', tab: 'tab1', pane: 'p1', cwd, terminal: 'term1' }, agents, texts: { ...texts } };
   const timers = [];
   const pending = [];
   const cx = {

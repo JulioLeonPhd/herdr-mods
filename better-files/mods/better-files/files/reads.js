@@ -32,8 +32,10 @@ export const readMethods = {
         : (space?.machine ?? null);
     // A file or diff tab carries no cwd of its own: only a terminal pane (a pane entry
     // with no mod) contributes one, or the focused entry's cwd when it names a terminal.
+    // `f?.terminal` is null for mod panes even while their `mod` is still attaching,
+    // so it keeps a just-opened viewer from leaking the pane's default cwd.
     const cwd =
-      pane && !pane.mod
+      pane && !pane.mod && f?.terminal
         ? (pane.cwd || f?.cwd || null)
         : !pane && f?.terminal
           ? (f?.cwd ?? null)
@@ -47,6 +49,14 @@ export const readMethods = {
           activeSpaceFolder: space?.folder,
           prevPlace: this.place,
           computedCwd: cwd,
+          overwrote:
+            cwd && this.place?.cwd && this.place?.cwd !== cwd
+              ? {
+                  paneMod: pane?.mod ?? null,
+                  paneCwd: pane?.cwd ?? null,
+                  fCwd: f?.cwd ?? null,
+                }
+              : null,
         });
     if (!cwd && this.place?.space === space?.id && this.place?.cwd) return this.place;
     return (this.place = { cwd: cwd || space?.folder, on, space: space?.id });
