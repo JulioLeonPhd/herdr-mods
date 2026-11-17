@@ -383,7 +383,7 @@ export const viewerMethods = {
       const result = await exec(program, args, {}).catch(() => null);
       this.reading = false;
       if (this.file?.path !== file.path) return;
-      const problem = result?.code === 0 ? null : "This file is no longer available.";
+      const problem = result?.code === 0 ? null : `This file is no longer available: ${file.path}`;
       const shown = problem ? null : copy;
       if (problem !== this.problem || shown !== this.imageShown) {
         this.problem = problem;

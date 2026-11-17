@@ -212,6 +212,7 @@ export const treeMethods = {
         ),
     );
     if (failure) root.child(Message(failure, true));
+    if (this.focusDebug) root.child(Message(this.focusDebug, true));
     if (this.notice) root.child(Message(this.notice));
     const body = v_flex().id("files-list").flex_1().min_h(0).min_w(0).overflow_y_scrollbar().p(6);
     if (!this.root) body.child(Message("Select a space to see its files."));

@@ -30,7 +30,24 @@ export const readMethods = {
           ? f.terminal.split("/")[0]
           : null
         : (space?.machine ?? null);
-    const cwd = pane?.cwd || f?.cwd;
+    // A file or diff tab carries no cwd of its own: only a terminal pane (a pane entry
+    // with no mod) contributes one, or the focused entry's cwd when it names a terminal.
+    const cwd =
+      pane && !pane.mod
+        ? (pane.cwd || f?.cwd || null)
+        : !pane && f?.terminal
+          ? (f?.cwd ?? null)
+          : null;
+    if (window()?.platform === "windows")
+      this.focusDebug =
+        "DBG " +
+        JSON.stringify({
+          focused: f,
+          activeSpaceId: space?.id,
+          activeSpaceFolder: space?.folder,
+          prevPlace: this.place,
+          computedCwd: cwd,
+        });
     if (!cwd && this.place?.space === space?.id && this.place?.cwd) return this.place;
     return (this.place = { cwd: cwd || space?.folder, on, space: space?.id });
   },
@@ -109,7 +126,10 @@ export const readMethods = {
       { cwd: root, on },
     ).catch(() => null);
     if (this.key !== token) return;
-    this.top = top.stdout.trim();
+    // Git emits forward slashes even on Windows; the tree's keys take the root's own
+    // separator, so match the top to the root instead.
+    const sep = root.includes("\\") ? "\\" : "/";
+    this.top = top.stdout.trim().replace(/[/\\]/g, sep);
     if (status?.code === 0) this.marks = parseStatus(status.stdout, this.top);
   },
 

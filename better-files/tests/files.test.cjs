@@ -119,6 +119,15 @@ test('the tree lists folders first, opens lazily and marks what changed', async 
   assert.equal(find(h.mod.render(), 'files-row-src/main.go'), undefined);
 });
 
+test('git marks match the tree when the root is native but git reports forward slashes (windows)', async () => {
+  const tree = { 'C:\\wf-test': [['d', 'src'], ['f', 'b.md'], ['f', 'a.md']], 'C:\\wf-test/src': [['f', 'main.go']] };
+  const h = await ready({ tree, top: 'C:/wf-test', cwd: 'C:\\wf-test' });
+  assert.match(strings(find(h.mod.render(), 'files-list')), /b\.md M/);
+  click(h, 'files-row-src');
+  await h.flush();
+  assert.match(strings(find(h.mod.render(), 'files-row-src/main.go')), /main\.go M/);
+});
+
 test('a changed file and a folder holding one are coloured by what happened', async () => {
   const h = await ready();
   const color = (id) => { const seen = []; const walk = (n) => { if (n?.colors) seen.push(...n.colors); (n?.nodes ?? []).forEach(walk); }; walk(find(h.mod.render(), id)); return seen; };
@@ -738,6 +747,15 @@ test('looking at a file tab leaves the tree where it was', async () => {
   assert.equal(h.mod.root, '/repo/src');
   h.live.panes.push({ pane: 'p9', tab: 'tab9', mod: 'better-files' });
   h.live.focused = { space: 's', tab: 'tab9', pane: 'p9' };
+  h.tick();
+  assert.equal(h.mod.root, '/repo/src');
+});
+
+test('a file tab with its own cwd does not yank the tree away', async () => {
+  const h = await ready({ cwd: '/repo/src' });
+  assert.equal(h.mod.root, '/repo/src');
+  h.live.panes.push({ pane: 'p9', tab: 'tab9', mod: 'better-files' });
+  h.live.focused = { space: 's', tab: 'tab9', pane: 'p9', cwd: '/other' };
   h.tick();
   assert.equal(h.mod.root, '/repo/src');
 });

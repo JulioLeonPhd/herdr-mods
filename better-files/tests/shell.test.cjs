@@ -169,8 +169,7 @@ test('pickReveal windows uses explorer /select with inner double quotes', async 
   const r = pickReveal('C:\\Users\\me\\file.txt', 'windows');
   assert.equal(r.program, 'powershell.exe');
   const script = r.args[3];
-  assert.ok(script.includes('explorer.exe'));
-  assert.ok(script.includes('/select,"'));
+  assert.ok(script.includes(`& { explorer.exe ('/select,"' + $args[0] + '"') }`));
   assert.ok(script.endsWith(psQuote('C:\\Users\\me\\file.txt')));
 });
 
