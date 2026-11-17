@@ -81,7 +81,7 @@ export const outsideMethods = {
     return this.outside(pickOpenWithDefault(path, window()?.platform), "open it");
   },
 
-  revealInFinder(path) {
+  reveal(path) {
     const platform = window()?.platform;
     return this.outside(pickReveal(path, platform), revealError(platform));
   },

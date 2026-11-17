@@ -40,24 +40,6 @@ export const readMethods = {
         : !pane && f?.terminal
           ? (f?.cwd ?? null)
           : null;
-    if (window()?.platform === "windows")
-      this.focusDebug =
-        "DBG " +
-        JSON.stringify({
-          focused: f,
-          activeSpaceId: space?.id,
-          activeSpaceFolder: space?.folder,
-          prevPlace: this.place,
-          computedCwd: cwd,
-          overwrote:
-            cwd && this.place?.cwd && this.place?.cwd !== cwd
-              ? {
-                  paneMod: pane?.mod ?? null,
-                  paneCwd: pane?.cwd ?? null,
-                  fCwd: f?.cwd ?? null,
-                }
-              : null,
-        });
     if (!cwd && this.place?.space === space?.id && this.place?.cwd) return this.place;
     return (this.place = { cwd: cwd || space?.folder, on, space: space?.id });
   },
@@ -139,7 +121,8 @@ export const readMethods = {
     // Git emits forward slashes even on Windows; the tree's keys take the root's own
     // separator, so match the top to the root instead.
     const sep = root.includes("\\") ? "\\" : "/";
-    this.top = top.stdout.trim().replace(/[/\\]/g, sep);
+    const trimmed = top.stdout.trim();
+    this.top = sep === "\\" ? trimmed.replace(/[/\\]/g, sep) : trimmed;
     if (status?.code === 0) this.marks = parseStatus(status.stdout, this.top);
   },
 

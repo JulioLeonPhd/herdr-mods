@@ -28,7 +28,7 @@ export const contextMenuMethods = {
         ? [{ id: "default", label: "Open in default app", run: () => this.openWithDefault(target.path) }]
         : []),
       ...(local
-        ? [{ id: "reveal", label: revealLabel(window()?.platform), run: () => this.revealInFinder(target.path) }]
+        ? [{ id: "reveal", label: revealLabel(window()?.platform), run: () => this.reveal(target.path) }]
         : []),
     ]);
     if (!target.dir && target.changed && shared("better-files.has-changes"))
