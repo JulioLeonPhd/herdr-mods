@@ -33,24 +33,58 @@ export function pickListing(path, perFolder, platform) {
 }
 
 // --- Image copy (viewer + markdown) ---
-// Wire contract (both): exit 0 on success; source missing → non-zero, no dest created.
-// macOS: cmp -s byte compare. Windows: SHA-256 hash compare (no cmp builtin in 5.1).
+// Copies go in a hidden folder: saving any other file in a mod's folder makes Herdr reload
+// the mod, which threw the tree away on every picture opened. Herdr doesn't see a hidden file
+// change either, and keeps what it loaded under a name, so a name is never given to other
+// bytes: it's the picture's checksum and size, and a changed picture gets a new one.
+// $1 the file, $2 the cache folder, $3 the name's start, $4 its extension, $5 the copy this one
+// replaces, removed once the new one is in. With no $5, as when a tab starts again after a
+// reload, every other copy under the same start goes instead, so none outlives what tracked
+// it. Prints the copy's name. No file name reaches the script itself, and only the cache's
+// own copies are ever removed. A picture that changes while it's copied exits BUSY, and a
+// copy that fails or is BUSY leaves nothing half-made behind; it's copied on the next check.
+export const BUSY = 75;
+export const COPY_IMAGE = `sum=$(cksum < "$1") || exit 1
+name="$3-\${sum%% *}-\${sum##* }.$4"; copy="$2/$name"
+if [ ! -e "$copy" ]; then
+  trap 'rm -f -- "$copy.part"' EXIT
+  mkdir -p -- "$2" && cp -- "$1" "$copy.part" || exit 1
+  [ "$(cksum < "$copy.part")" = "$sum" ] || exit ${BUSY}
+  mv -f -- "$copy.part" "$copy" || exit 1
+fi
+if [ -n "$5" ]; then set -- "$5"; else set -- "$2/$3"-[0-9]*; fi
+for old in "$@"; do [ "$old" = "$copy" ] || [ ! -e "$old" ] || rm -f -- "$old"; done
+printf %s "$name"`;
 
-const COPY_IMAGE_SH = `[ -z "$3" ] || rm -f -- "$3"; mkdir -p -- "$(dirname -- "$2")" && { cmp -s -- "$1" "$2" || cp -- "$1" "$2"; }`;
+// The same contract in PowerShell 5.1: the name is a SHA-256 prefix and the size, and the
+// copy it replaces is matched by file name, since this shell's separators may differ.
+const COPY_IMAGE_PS = `$src,$dir,$start,$ext,$old=$args; try {
+if (-not (Test-Path -LiteralPath $src -PathType Leaf)) { exit 1 }
+$sum=(Get-FileHash -LiteralPath $src -Algorithm SHA256 -ErrorAction Stop).Hash.Substring(0,16).ToLower()
+$name="$start-$sum-$((Get-Item -LiteralPath $src).Length).$ext"; $copy=Join-Path $dir $name
+if (-not (Test-Path -LiteralPath $copy)) {
+  $part="$copy.part"
+  try {
+    New-Item -ItemType Directory -Force -Path $dir -ErrorAction Stop | Out-Null
+    Copy-Item -LiteralPath $src -Destination $part -Force -ErrorAction Stop
+    if ((Get-FileHash -LiteralPath $part -Algorithm SHA256 -ErrorAction Stop).Hash.Substring(0,16).ToLower() -ne $sum) { exit ${BUSY} }
+    Move-Item -LiteralPath $part -Destination $copy -Force -ErrorAction Stop
+  } finally { Remove-Item -LiteralPath $part -Force -ErrorAction SilentlyContinue }
+}
+$pattern='^' + [regex]::Escape($start) + '-[0-9a-f]{16}-[0-9]+\\.'
+$olds=if ($old) { @($old) } else { @(Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match $pattern } | ForEach-Object { $_.FullName }) }
+foreach ($o in $olds) { if ((Split-Path -Leaf $o) -ne $name -and (Test-Path -LiteralPath $o)) { Remove-Item -LiteralPath $o -Force -ErrorAction SilentlyContinue } }
+[Console]::Out.Write($name); exit 0
+} catch { exit 1 }`;
 
-const COPY_IMAGE_PS = `$src=$args[0];$dst=$args[1];$old=$args[2];try{if($old){Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue};$parent=Split-Path -Parent $dst;New-Item -ItemType Directory -Force -Path $parent -ErrorAction Stop|Out-Null;if(-not(Test-Path -LiteralPath $src -PathType Leaf)){exit 1};$copy=$true;if(Test-Path -LiteralPath $dst -PathType Leaf){$copy=(Get-FileHash -LiteralPath $src -Algorithm SHA256 -ErrorAction Stop).Hash -ne (Get-FileHash -LiteralPath $dst -Algorithm SHA256 -ErrorAction Stop).Hash};if($copy){Copy-Item -LiteralPath $src -Destination $dst -Force -ErrorAction Stop};exit 0}catch{exit 1}`;
-
-export function pickCopyImage(src, dest, old, platform) {
+export function pickCopyImage(src, cacheDir, start, ext, old, platform) {
   if (isWin(platform)) {
     return {
       program: "powershell.exe",
-      args: ["-NoProfile", "-NoLogo", "-Command", `& { ${COPY_IMAGE_PS} } ${psQuote(src)} ${psQuote(dest)} ${psQuote(old)}`],
+      args: ["-NoProfile", "-NoLogo", "-Command", `& { ${COPY_IMAGE_PS} } ${[src, cacheDir, start, ext, old].map(psQuote).join(" ")}`],
     };
   }
-  return {
-    program: "sh",
-    args: ["-c", COPY_IMAGE_SH, "copy-image", src, dest, old],
-  };
+  return { program: "sh", args: ["-c", COPY_IMAGE, "copy-image", src, cacheDir, start, ext, old] };
 }
 
 // --- Cache cleanup on tab close ---

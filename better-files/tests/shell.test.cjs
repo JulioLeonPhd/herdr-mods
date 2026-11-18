@@ -64,34 +64,33 @@ test('pickListing windows quotes path with embedded single quote', async () => {
 });
 
 // --- pickCopyImage ---
+// Contract: src, cache folder, name start, extension, the copy it replaces; prints the copy's name.
 
-const GOLDEN_COPY_SH = '[ -z "$3" ] || rm -f -- "$3"; mkdir -p -- "$(dirname -- "$2")" && { cmp -s -- "$1" "$2" || cp -- "$1" "$2"; }';
-
-test('pickCopyImage macOS is byte-for-byte the original sh call', async () => {
-  const { pickCopyImage } = await load();
-  const r = pickCopyImage('/src/img.png', '/cache/img.png', '/cache/old.png', 'macos');
+test('pickCopyImage macOS is the sh copy-image call the viewer always made', async () => {
+  const { pickCopyImage, COPY_IMAGE } = await load();
+  const r = pickCopyImage('/src/img.png', '/app/.cache', 'v', 'png', '/app/.cache/v-1-2.png', 'macos');
   assert.equal(r.program, 'sh');
-  assert.deepEqual(r.args, ['-c', GOLDEN_COPY_SH, 'copy-image', '/src/img.png', '/cache/img.png', '/cache/old.png']);
+  assert.deepEqual(r.args, ['-c', COPY_IMAGE, 'copy-image', '/src/img.png', '/app/.cache', 'v', 'png', '/app/.cache/v-1-2.png']);
+  assert.ok(COPY_IMAGE.startsWith('sum=$(cksum < "$1") || exit 1'));
 });
 
-test('pickCopyImage macOS with empty old still passes empty string', async () => {
-  const { pickCopyImage } = await load();
-  const r = pickCopyImage('/src/img.png', '/cache/img.png', '', 'macos');
-  assert.deepEqual(r.args, ['-c', GOLDEN_COPY_SH, 'copy-image', '/src/img.png', '/cache/img.png', '']);
+test('pickCopyImage macOS with no old copy still passes an empty string', async () => {
+  const { pickCopyImage, COPY_IMAGE } = await load();
+  const r = pickCopyImage('/src/img.png', '/app/.cache', 'v-m1', 'png', '', 'macos');
+  assert.deepEqual(r.args, ['-c', COPY_IMAGE, 'copy-image', '/src/img.png', '/app/.cache', 'v-m1', 'png', '']);
 });
 
-test('pickCopyImage windows uses & { } wrapper with three args and SHA256', async () => {
-  const { pickCopyImage, psQuote } = await load();
-  const r = pickCopyImage('/src/a.png', '/dest/a.png', '/old/a.png', 'windows');
+test('pickCopyImage windows passes the same five arguments to a PowerShell port', async () => {
+  const { pickCopyImage, psQuote, BUSY } = await load();
+  const r = pickCopyImage('C:\\pics\\a b.png', 'C:/app/.cache', 'v', 'png', '', 'windows');
   assert.equal(r.program, 'powershell.exe');
   assert.deepEqual(r.args.slice(0, 3), ['-NoProfile', '-NoLogo', '-Command']);
   const script = r.args[3];
-  assert.ok(script.startsWith('& { '));
-  assert.ok(script.endsWith(`${psQuote('/src/a.png')} ${psQuote('/dest/a.png')} ${psQuote('/old/a.png')}`));
-  assert.ok(script.includes('Get-FileHash'));
-  assert.ok(script.includes('SHA256'));
-  assert.ok(script.includes('Remove-Item'));
-  assert.ok(script.includes('New-Item -ItemType Directory -Force'));
+  assert.ok(script.startsWith('& { $src,$dir,$start,$ext,$old=$args;'));
+  assert.ok(script.endsWith(['C:\\pics\\a b.png', 'C:/app/.cache', 'v', 'png', ''].map(psQuote).join(' ')));
+  assert.ok(script.includes(`{ exit ${BUSY} }`), 'a picture changing mid-copy exits BUSY');
+  // the replaced copy is matched by file name, not by a path whose separators may differ
+  assert.ok(script.includes('(Split-Path -Leaf $o) -ne $name'));
 });
 
 // --- pickRm ---
