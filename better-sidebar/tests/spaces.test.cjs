@@ -10,6 +10,7 @@ const runtime = path.join(__dirname, "../mods/better-sidebar");
 function harness(stored = {}) {
   const live = { spaces: [], panes: [], machines: [] };
   const pending = [],
+    scrolled = [],
     calls = [],
     commands = [],
     overlays = [],
@@ -83,6 +84,7 @@ function harness(stored = {}) {
     window: () => ({ active: true }),
     props: () => ({}),
     Popover: { new: (id) => element().id(id) },
+    ScrollHandle: { new: () => ({ scroll_to_item: (index) => scrolled.push(index) }) },
     shared: (key) => values[key],
     setShared: (key, value) => {
       values[key] = value;
@@ -124,6 +126,7 @@ function harness(stored = {}) {
   mod.init({}, cx);
   return {
     live,
+    scrolled,
     stored,
     calls,
     commands,
@@ -626,6 +629,75 @@ test("spaces publish each space's main space for the agents block", () => {
     "without an open main space, the repository's folder",
   );
   assert.equal(parents.plain, undefined, "not a repository");
+});
+
+// Keyboard space switching: the list scrolls the shown space's row into view, once per change.
+function scrolling() {
+  const h = harness();
+  h.live.spaces = ["trails", "maps", "api", "notes"].map((id) => ({ id, name: id, folder: `/${id}`, tabs: [], active: id === "trails" }));
+  for (const sp of h.live.spaces) h.mod.shown.add(sp.id);
+  const show = (id) => h.live.spaces.forEach((sp) => (sp.active = sp.id === id));
+  return { h, show };
+}
+
+test("the list scrolls to the shown space when it changes, and only then", () => {
+  const { h, show } = scrolling();
+  h.mod.body(h.colors, false);
+  assert.deepEqual(h.scrolled, [0]);
+  h.mod.body(h.colors, false);
+  assert.deepEqual(h.scrolled, [0], "no new space, no scroll");
+  show("api");
+  h.mod.body(h.colors, false);
+  assert.deepEqual(h.scrolled, [0, 2]);
+  assert.equal(find(h.mod.body(h.colors, false), "spaces-list").attributes.track_scroll.length, 1);
+});
+
+test("it scrolls to the space's group, its row and the rows under it, counting the rows above", () => {
+  const { h, show } = scrolling();
+  // As in the lists view: pinned agents on top, and each space's tabs under it.
+  h.mod.above = () => ["pinned agent"];
+  h.mod.under = ({ w }) => [`${w.id} tab 1`, `${w.id} tab 2`];
+  show("api");
+  const list = find(h.mod.body(h.colors, false), "spaces-list");
+  assert.deepEqual(h.scrolled, [3], "1 pinned + the trails and maps groups");
+  const group = list.nodes[3];
+  assert.equal(group.nodes[0].id, "space-api");
+  assert.deepEqual(group.nodes.slice(1), ["api tab 1", "api tab 2"]);
+  show("notes");
+  h.mod.body(h.colors, true);
+  assert.deepEqual(h.scrolled, [3, 4], "on the rail a space is its own row");
+});
+
+test("a shown space that isn't listed, as in a folded machine, doesn't scroll, and coming back does", () => {
+  const { h, show } = scrolling();
+  h.live.spaces.push({ id: "far", name: "far", folder: "/far", tabs: [], machine: "server", active: false });
+  h.mod.shown.add("far");
+  h.mod.folded.add("server");
+  show("maps");
+  h.mod.body(h.colors, false);
+  show("far");
+  h.mod.body(h.colors, false);
+  assert.deepEqual(h.scrolled, [2], "after the local machine header");
+  show("maps");
+  h.mod.body(h.colors, false);
+  assert.deepEqual(h.scrolled, [2, 2], "back to maps, which may have scrolled away meanwhile");
+});
+
+test("a change that follows a press in the list doesn't scroll; a later one does", () => {
+  const { h, show } = scrolling();
+  let now = 100000;
+  vm.runInContext("Date", h.context).now = () => now;
+  const list = find(h.mod.body(h.colors, false), "spaces-list");
+  assert.deepEqual(h.scrolled, [0]);
+  list.handlers.mouse_down_left();
+  show("api");
+  now += 200;
+  h.mod.body(h.colors, false);
+  assert.deepEqual(h.scrolled, [0], "the clicked row stays under the pointer");
+  now += 5000;
+  show("notes");
+  h.mod.body(h.colors, false);
+  assert.deepEqual(h.scrolled, [0, 3]);
 });
 
 // Space sorting. Times are when something in a tab last changed state, as Herdr gives them;

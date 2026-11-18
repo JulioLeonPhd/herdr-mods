@@ -1,7 +1,7 @@
 // The spaces list: right-aligned branches, nested worktrees and a PR status line.
 // Repository facts follow each space's first terminal.
 import { div } from "gpui-kit";
-import { v_flex, h_flex } from "gpui-base";
+import { v_flex, h_flex, ScrollHandle } from "gpui-base";
 import {
   spaces,
   machines,
@@ -37,6 +37,9 @@ const rowHeight = ({ tree }) => (tree ? 28 : 30);
 // Watches and terminal events handle most changes. Poll visible repositories
 // occasionally to catch edits and commits made outside Herdr.
 const GIT_FALLBACK_MS = 15000;
+// A shown-space change this soon after a press in the list came from that press, so the
+// row under the pointer stays where it is.
+const CLICK_MS = 1000;
 // Preferences a person may change in the installed mod.json under `settings`.
 // `combined` is read by the lists view: tabs, or spaces above agents.
 const DEFAULT_SETTINGS = { git: { retry_after: "15s" }, pull_request_status: true, combined: true };
@@ -85,6 +88,11 @@ export class Spaces {
     this.born = {};
     this.pressed = null;
     this.over = null;
+    // Brings the shown space and its rows into view when the shown space changes, as from a key.
+    this.listScroll = ScrollHandle.new();
+    this.lastShown = undefined;
+    this.revealing = false;
+    this.clickedAt = -Infinity;
     this.sortOpen = false;
     this.sortFocus = cx.focus_handle();
     // Each tab's last state and when it changed (ms), kept across restarts, for Recent.
@@ -425,8 +433,20 @@ export class Spaces {
   // The rows, under a header per machine once one isn't this computer.
   grouped(t, collapsed) {
     const rows = this.ordered();
-    // `under`, set by the lists view, adds rows beneath a space: its agents.
-    const draw = (r) => (collapsed ? [this.compact(r, t)] : [this.row(r, t), ...(this.under?.(r) ?? [])]);
+    // The shown space's group, so the list can scroll to it.
+    this.shownGroup = null;
+    // `under`, set by the lists view, adds rows beneath a space: its tabs and agents. A space
+    // and its rows are one child of the list, so scrolling to it brings in all of them.
+    const draw = (r) => {
+      const group = collapsed
+        ? this.compact(r, t)
+        : v_flex()
+            .flex_none()
+            .child(this.row(r, t))
+            .children(this.under?.(r) ?? []);
+      if (r.w.active) this.shownGroup = group;
+      return [group];
+    };
     const remote = [
       ...new Set([
         ...rows.map((r) => r.w.machine).filter(Boolean),
@@ -913,6 +933,8 @@ export class Spaces {
   }
 
   body(t, collapsed) {
+    const rows = [...(this.above?.() ?? []), ...this.grouped(t, collapsed)];
+    this.revealShown(rows);
     return v_flex()
       .id("spaces-list")
       .flex_1()
@@ -921,11 +943,32 @@ export class Spaces {
       .pb(14)
       .overflow_y_scrollbar()
       .mode("always")
+      .on_mouse_down("left", () => {
+        this.clickedAt = Date.now();
+      })
       .on_mouse_up("left", (_e, cx) => {
         this.pressed = null;
         cx.notify();
       })
-      .children(this.above?.() ?? [])
-      .children(this.grouped(t, collapsed));
+      .track_scroll(this.listScroll)
+      .children(rows);
+  }
+
+  // Once per change of the shown space, as from a key: scroll its group (its row, then its tabs
+  // and agents) into view. The host scrolls as little as it can, so a group above lands with
+  // the space's row at the top and one below with its last row at the bottom; a group already
+  // on screen stays put. A change from a press in the list doesn't scroll. A space that isn't
+  // listed, as in a folded machine, waits until it is.
+  revealShown(rows) {
+    const shown = spaces().find((s) => s.active)?.id ?? null;
+    if (shown !== this.lastShown) {
+      this.lastShown = shown;
+      this.revealing = shown !== null && Date.now() - this.clickedAt > CLICK_MS;
+    }
+    if (!this.revealing || !this.shownGroup) return;
+    const at = rows.indexOf(this.shownGroup);
+    if (at === -1) return;
+    this.revealing = false;
+    this.listScroll.scroll_to_item(at);
   }
 }
