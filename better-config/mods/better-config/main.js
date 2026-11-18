@@ -6,7 +6,7 @@
 // update wiped can be put back.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, InputState, Input, Select, Popup, Checkbox } from "gpui-base";
-import { appHome, home, exec, readTextFile, writeTextFile, theme, props, closeOverlay, run, layout } from "herdr";
+import { appHome, home, exec, readTextFile, writeTextFile, theme, props, closeOverlay, run, window, layout } from "herdr";
 import {
   fieldsOf,
   getPath,
@@ -24,6 +24,7 @@ import {
   installedRows,
   filterInstalled,
 } from "./model.js";
+import { pickListMods, pickMkdir } from "./shell.js";
 
 const I = (name) => `mods/better-config/icons/${name}.svg`;
 const POLL_MS = 3000;
@@ -70,7 +71,8 @@ export default class BetterConfig extends View {
 
   // Every installed mod with settings: described by its mod.schema.json, or set in its mod.json. Returns whether anything changed.
   async load() {
-    const listing = await exec("/bin/sh", ["-c", 'cd "$1" && ls -d */ 2>/dev/null', "sh", `${appHome()}/mods`]);
+    const { program, args } = pickListMods(`${appHome()}/mods`, window()?.platform);
+    const listing = await exec(program, args);
     const names = listing.stdout.split("\n").map((n) => n.replace(/\/$/, "")).filter(Boolean);
     const mods = [];
     const entries = [];
@@ -145,7 +147,10 @@ export default class BetterConfig extends View {
     if (mod.kept && equal(mod.kept, next)) return;
     const text = `${JSON.stringify(next, null, 2)}\n`;
     try {
-      if (mod.keptRaw === null) await exec("mkdir", ["-p", this.keptFolder()]);
+      if (mod.keptRaw === null) {
+        const { program, args } = pickMkdir(this.keptFolder(), window()?.platform);
+        await exec(program, args);
+      }
       await writeTextFile(mod.keptPath, text, mod.keptRaw);
       mod.kept = next;
       mod.keptRaw = text;
