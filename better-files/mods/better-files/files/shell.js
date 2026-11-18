@@ -9,14 +9,14 @@ const isWin = (platform) => platform === "windows";
 
 // --- Directory listing ---
 // Wire contract (both platforms): NUL-delimited kind/name pairs, .git skipped,
-// UTF-8, capped at perFolder entries. Missing folder → non-zero exit + stderr.
+// UTF-8, at most perFolder + 1 entries (one past the cap, so overflow is visible). Missing folder → non-zero exit + stderr.
 
 function listingSh(perFolder) {
   return `n=0; for p in "$1"/* "$1"/.[!.]* "$1"/..?*; do [ -e "$p" ] || [ -L "$p" ] || continue; name=\${p##*/}; [ "$name" = .git ] && continue; if [ -d "$p" ]; then kind=d; else kind=f; fi; printf "%s\\0%s\\0" "$kind" "$name"; n=$((n+1)); [ "$n" -gt ${perFolder} ] && break; done; test -d "$1"`;
 }
 
 function listingPs(perFolder) {
-  return `[Console]::OutputEncoding=[Text.Encoding]::UTF8; $p=$args[0]; if (-not (Test-Path -LiteralPath $p -PathType Container)) { [Console]::Error.WriteLine('Cannot list this folder.'); exit 1 }; Get-ChildItem -LiteralPath $p -Force | Where-Object { $_.Name -ne '.git' } | Select-Object -First ${perFolder} | ForEach-Object { $k=if ($_.PSIsContainer) {'d'} else {'f'}; [Console]::Out.Write($k + [char]0 + $_.Name + [char]0) }`;
+  return `[Console]::OutputEncoding=[Text.Encoding]::UTF8; $p=$args[0]; if (-not (Test-Path -LiteralPath $p -PathType Container)) { [Console]::Error.WriteLine('Cannot list this folder.'); exit 1 }; Get-ChildItem -LiteralPath $p -Force | Where-Object { $_.Name -ne '.git' } | Select-Object -First ${perFolder + 1} | ForEach-Object { $k=if ($_.PSIsContainer) {'d'} else {'f'}; [Console]::Out.Write($k + [char]0 + $_.Name + [char]0) }`;
 }
 
 export function pickListing(path, perFolder, platform) {
@@ -70,11 +70,15 @@ export function pickRm(paths, platform) {
 
 // --- External actions: open in editor, open with default app, reveal ---
 
+// PowerShell 5.1 joins -ArgumentList unquoted, so the path is quoted here. Trailing
+// backslashes are doubled so a folder like C:\ doesn't end in \" (an escaped quote).
+const OPEN_IN_EDITOR_PS = `$a=$args[1] -replace '(\\\\+)$','$1$1'; Start-Process -FilePath $args[0] -ArgumentList ([char]34 + $a + [char]34)`;
+
 export function pickOpenInEditor(editor, path, platform) {
   if (isWin(platform)) {
     return {
       program: "powershell.exe",
-      args: ["-NoProfile", "-NoLogo", "-Command", `& { Start-Process -FilePath $args[0] -ArgumentList @($args[1]) } ${psQuote(editor.exe)} ${psQuote(path)}`],
+      args: ["-NoProfile", "-NoLogo", "-Command", `& { ${OPEN_IN_EDITOR_PS} } ${psQuote(editor.exe)} ${psQuote(path)}`],
     };
   }
   return { program: "open", args: ["-b", editor.bundle, path] };
@@ -90,17 +94,22 @@ export function pickOpenWithDefault(path, platform) {
   return { program: "open", args: [path] };
 }
 
+// explorer.exe exits 1 even when it works, so 1 counts as success; a missing path or
+// explorer itself failing to start still exits non-zero.
+const REVEAL_PS = `$p=$args[0].Replace('/', [char]92); if (-not (Test-Path -LiteralPath $p)) { [Console]::Error.WriteLine('It is no longer there.'); exit 1 }; explorer.exe "/select,$p"; if ($? -or $LASTEXITCODE -eq 1) { exit 0 }; exit 1`;
+
 export function pickReveal(path, platform) {
   if (isWin(platform)) {
     return {
       program: "powershell.exe",
-      args: ["-NoProfile", "-NoLogo", "-Command", `& { explorer.exe "/select,$($args[0].Replace('/', [char]92))" } ${psQuote(path)}`],
+      args: ["-NoProfile", "-NoLogo", "-Command", `& { ${REVEAL_PS} } ${psQuote(path)}`],
     };
   }
   return { program: "open", args: ["-R", path] };
 }
 
 export const revealLabel = (platform) => (isWin(platform) ? "Show in Explorer" : "Show in Finder");
+export const openFolderLabel = (platform) => (isWin(platform) ? "Open in Explorer" : "Open in Finder");
 export const revealError = (platform) => (isWin(platform) ? "show it in Explorer" : "show it in Finder");
 
 // --- Editor detection ---
@@ -109,24 +118,20 @@ export const revealError = (platform) => (isWin(platform) ? "show it in Explorer
 // well-known dirs for every candidate; first hit wins. Emits name\0exePath\0
 // pairs (UTF-8, NUL convention). Always exits 0.
 
+// Each entry is `ENVVAR|path under it`; the base is looked up at run time, so an unset
+// variable (ProgramFiles(x86) on 32-bit Windows) skips that entry instead of failing.
 const KNOWN_WINDOWS_DIRS = {
-  "Zed.exe": [`Join-Path $env:LOCALAPPDATA 'Programs\\Zed\\Zed.exe'`],
-  "Code.exe": [
-    `Join-Path $env:LOCALAPPDATA 'Programs\\Microsoft VS Code\\Code.exe'`,
-    `Join-Path $env:ProgramFiles 'Microsoft VS Code\\Code.exe'`,
-  ],
-  "Cursor.exe": [`Join-Path $env:LOCALAPPDATA 'Programs\\cursor\\Cursor.exe'`],
-  "Windsurf.exe": [`Join-Path $env:LOCALAPPDATA 'Programs\\Windsurf\\Windsurf.exe'`],
-  "sublime_text.exe": [
-    `Join-Path $env:ProgramFiles 'Sublime Text\\sublime_text.exe'`,
-    `Join-Path $env:ProgramFiles(x86) 'Sublime Text\\sublime_text.exe'`,
-  ],
+  "Zed.exe": ["LOCALAPPDATA|Programs\\Zed\\Zed.exe"],
+  "Code.exe": ["LOCALAPPDATA|Programs\\Microsoft VS Code\\Code.exe", "ProgramFiles|Microsoft VS Code\\Code.exe"],
+  "Cursor.exe": ["LOCALAPPDATA|Programs\\cursor\\Cursor.exe"],
+  "Windsurf.exe": ["LOCALAPPDATA|Programs\\Windsurf\\Windsurf.exe"],
+  "sublime_text.exe": ["ProgramFiles|Sublime Text\\sublime_text.exe", "ProgramFiles(x86)|Sublime Text\\sublime_text.exe"],
 };
 
 function detectEditorsPs(allEditors) {
   const candidates = allEditors
     .filter((e) => e.exe && e.name)
-    .map((e) => `@(${psQuote(e.name)},${psQuote(e.exe)},@(${(KNOWN_WINDOWS_DIRS[e.exe] ?? []).join(",")}))`)
+    .map((e) => `@(${psQuote(e.name)},${psQuote(e.exe)},@(${(KNOWN_WINDOWS_DIRS[e.exe] ?? []).map(psQuote).join(",")}))`)
     .join(",");
   const script =
     `[Console]::OutputEncoding=[Text.Encoding]::UTF8; ` +
@@ -137,8 +142,8 @@ function detectEditorsPs(allEditors) {
     `if($lm -and $lm.'(default)'){$found=[string]$lm.'(default)'}; ` +
     `if(-not $found){ $cu=Get-ItemProperty -Path "HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\$exe" -ErrorAction SilentlyContinue; if($cu -and $cu.'(default)'){$found=[string]$cu.'(default)'} }; ` +
     `if(-not $found){ $pd=@($env:PATH -split ';' | ForEach-Object { if($_ -and (Test-Path -LiteralPath (Join-Path $_ $exe))){ Join-Path $_ $exe } } | Select-Object -First 1); if($pd){ $found=$pd } }; ` +
-    `if(-not $found){ foreach($d in $c[2]){ if(Test-Path -LiteralPath $d){ $found=$d; break } } }; ` +
-    `if($found){ [Console]::Out.Write($c[0] + [char]0 + $found + [char]0) } ` +
+    `if(-not $found){ foreach($d in $c[2]){ $e,$rel=$d -split '\\|',2; $base=[Environment]::GetEnvironmentVariable($e); if($base){ $p=Join-Path $base $rel; if(Test-Path -LiteralPath $p){ $found=$p; break } } } }; ` +
+    `if($found){ $found=[Environment]::ExpandEnvironmentVariables($found.Trim().Trim([char]34)); [Console]::Out.Write($c[0] + [char]0 + $found + [char]0) } ` +
     `}; exit 0`;
   return { program: "powershell.exe", args: ["-NoProfile", "-NoLogo", "-Command", script] };
 }

@@ -110,12 +110,17 @@ export function sortEntries(entries) {
 
 // `git status --porcelain=v1 -z`, keyed by absolute path. `staged` is true when the only
 // change is in the index, which is where a diff of it has to look.
+// How a path is compared: Git writes forward slashes and its own drive-letter case even on
+// Windows, while the tree keeps the folder's own spelling, so marks are stored and looked up
+// by this key. A POSIX path comes out unchanged unless its names hold a backslash.
+export const markKey = (path) => path.replace(/\\/g, "/").replace(/^[A-Z]:/, (d) => d.toLowerCase());
+
 export function parseStatus(stdout, top) {
   const marks = {};
   for (const entry of stdout.split("\0").filter(Boolean).slice(0, TOTAL_ROWS)) {
     const xy = entry.slice(0, 2);
     const untracked = xy === "??";
-    marks[`${top}/${entry.slice(3)}`] = {
+    marks[markKey(`${top}/${entry.slice(3)}`)] = {
       mark: untracked || xy.includes("A") ? "A" : xy.includes("U") ? "U" : xy.includes("D") ? "D" : "M",
       staged: !untracked && xy[0] !== " " && xy[1] === " ",
     };
@@ -193,8 +198,10 @@ export function buildRows(lines, hunks, open) {
 export const hunkKey = (hunk) => `${hunk.kind}-${hunk.oldStart}`;
 
 // A folder holds a change if any changed file is inside it.
-export const holdsChange = (marks, folder) =>
-  Object.keys(marks).some((path) => path.startsWith(`${folder}/`));
+export const holdsChange = (marks, folder) => {
+  const prefix = `${markKey(folder)}/`;
+  return Object.keys(marks).some((path) => path.startsWith(prefix));
+};
 
 // Read-only view text: what can't be shown says why.
 export function viewable(text) {

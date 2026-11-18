@@ -38,8 +38,8 @@ test('pickListing windows uses powershell.exe with & { } wrapper and 500 cap', a
   // scriptblock wrapper
   assert.ok(script.startsWith('& { '));
   assert.ok(script.endsWith(psQuote('C:\\Users\\Julio\\docs')));
-  // cap
-  assert.ok(script.includes('Select-Object -First 500'));
+  // cap: one past perFolder, like the sh listing
+  assert.ok(script.includes('Select-Object -First 501'));
   // .git filter
   assert.ok(script.includes("-ne '.git'"));
   // UTF-8 output
@@ -54,7 +54,7 @@ test('pickListing windows uses powershell.exe with & { } wrapper and 500 cap', a
 test('pickListing windows respects perFolder parameter', async () => {
   const { pickListing } = await load();
   const r = pickListing('/x', 250, 'windows');
-  assert.ok(r.args[3].includes('Select-Object -First 250'));
+  assert.ok(r.args[3].includes('Select-Object -First 251'));
 });
 
 test('pickListing windows quotes path with embedded single quote', async () => {
@@ -133,7 +133,10 @@ test('pickOpenInEditor windows uses Start-Process with resolved exe path', async
   assert.deepEqual(r.args.slice(0, 3), ['-NoProfile', '-NoLogo', '-Command']);
   const script = r.args[3];
   assert.ok(script.includes('Start-Process -FilePath $args[0]'));
-  assert.ok(script.includes('-ArgumentList @($args[1])'));
+  // quoted, so PowerShell 5.1 doesn't split a path with spaces
+  assert.ok(script.includes('-ArgumentList ([char]34 + $a + [char]34)'));
+  // trailing backslashes doubled, so C:\\ doesn't end in an escaped quote
+  assert.ok(script.includes("$a=$args[1] -replace '(\\\\+)$','$1$1'"));
   assert.ok(script.endsWith(`${psQuote(editor.exe)} ${psQuote('C:\\Users\\me\\file.js')}`));
 });
 
@@ -169,7 +172,10 @@ test('pickReveal windows uses explorer /select with path normalization', async (
   const r = pickReveal('C:\\Users\\me\\file.txt', 'windows');
   assert.equal(r.program, 'powershell.exe');
   const script = r.args[3];
-  assert.ok(script.includes("& { explorer.exe \"/select,$($args[0].Replace('/', [char]92))\" }"));
+  assert.ok(script.includes("$p=$args[0].Replace('/', [char]92)"));
+  assert.ok(script.includes('explorer.exe "/select,$p"'));
+  // explorer.exe exits 1 even on success; anything else is still a failure
+  assert.ok(script.includes('if ($? -or $LASTEXITCODE -eq 1) { exit 0 }; exit 1'));
   assert.ok(script.endsWith(psQuote('C:\\Users\\me\\file.txt')));
 });
 

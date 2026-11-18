@@ -20,7 +20,7 @@ import {
 import { WHOLE_FILE_LINES, highlightLines, languageOf as lexerLanguage, syntaxColors, tokenizeLine } from "../syntax.js";
 import { viewerEntries } from "../actions/open.js";
 import { pickCopyImage } from "../files/shell.js";
-import { foundEditors } from "../actions/outside.js";
+import { editorId, foundEditors } from "../actions/outside.js";
 import { fileIcon, isLight } from "../files/file-icons.js";
 import { TEXT, FileIcon, Markdown, Message, MenuButton, TextButton, codeFont, codeSize } from "./ui.js";
 
@@ -550,9 +550,9 @@ export const viewerMethods = {
             accessibilityLabel: "Open in an editor",
             width: 200,
             trigger: MenuButton({ id: "viewer-open-in-trigger", label: "Open in" }),
-            choices: editors.map((e) => ({ id: e.bundle, label: e.name })),
-            onChoose: (bundle) => {
-              this.openInEditor(editors.find((e) => e.bundle === bundle), file.path);
+            choices: editors.map((e) => ({ id: editorId(e), label: e.name })),
+            onChoose: (id) => {
+              this.openInEditor(editors.find((e) => editorId(e) === id), file.path);
             },
           }),
         ),

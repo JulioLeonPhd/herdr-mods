@@ -15,6 +15,9 @@ const ERROR = "better-files.error";
 
 export const foundEditors = () => shared(FOUND) ?? [];
 
+// macOS entries are known by app ID, Windows ones by their exe.
+export const editorId = (e) => e.bundle ?? e.exe;
+
 export const outsideMethods = {
   // macOS: one lookup per app ID, done once: Spotlight knows apps wherever they're
   // installed. Windows: one PowerShell process probes App Paths, PATH, and well-known

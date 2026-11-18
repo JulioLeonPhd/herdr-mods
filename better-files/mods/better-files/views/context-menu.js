@@ -2,7 +2,7 @@
 import { div } from "gpui-kit";
 import { v_flex } from "gpui-base";
 import { closeOverlay, props, shared, theme, window } from "herdr";
-import { foundEditors } from "../actions/outside.js";
+import { editorId, foundEditors } from "../actions/outside.js";
 import { revealLabel } from "../files/shell.js";
 import { agentName } from "../actions/agents.js";
 import { TEXT } from "./ui.js";
@@ -20,7 +20,7 @@ export const contextMenuMethods = {
       ]);
     groups.push([
       ...editors.map((e) => ({
-        id: `editor-${e.bundle ?? e.exe}`,
+        id: `editor-${editorId(e)}`,
         label: `Open in ${e.name}`,
         run: () => this.openInEditor(e, target.path),
       })),

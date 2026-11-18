@@ -5,9 +5,11 @@ import { pickListing } from "./shell.js";
 
 // Each read of a folder is bounded, and the names come back null-separated, so no file name
 // can break the list. Adapted from Herdr's shipped Files mod; platform branching (sh vs
-// PowerShell 5.1) lives in shell.js.
+// PowerShell 5.1) lives in shell.js. Herdr only says what this computer runs, so another
+// machine's folder is read with `sh`, as before.
 async function directory(path, on) {
-  const { program, args } = pickListing(path, PER_FOLDER, window()?.platform);
+  const platform = on ? null : window()?.platform;
+  const { program, args } = pickListing(path, PER_FOLDER, platform);
   const r = await exec(program, args, { on });
   if (r.code !== 0) throw new Error(r.stderr || "Cannot list this folder.");
   const fields = r.stdout.split("\0");
@@ -118,11 +120,9 @@ export const readMethods = {
       { cwd: root, on },
     ).catch(() => null);
     if (this.key !== token) return;
-    // Git emits forward slashes even on Windows; the tree's keys take the root's own
-    // separator, so match the top to the root instead.
-    const sep = root.includes("\\") ? "\\" : "/";
-    const trimmed = top.stdout.trim();
-    this.top = sep === "\\" ? trimmed.replace(/[/\\]/g, sep) : trimmed;
+    // Git's spelling of the top (forward slashes, its own drive-letter case on Windows) is
+    // kept; marks are compared through markKey, so it needn't match the root's.
+    this.top = top.stdout.trim();
     if (status?.code === 0) this.marks = parseStatus(status.stdout, this.top);
   },
 

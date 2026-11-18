@@ -15,7 +15,7 @@ const source = `const { highlightLines, tokenizeLine, syntaxColors, languageOf: 
     .replace(/^import\s+[\s\S]*?;$/gm, '')
     .replace(/^export default (\w+);$/m, 'globalThis.Mod = $1;')
     .replace(/^export /gm, '')
-  + '\nObject.assign(globalThis, { parseStatus, parseHunks, buildRows, highlightLines, tokenizeLine, lexerLanguage, viewable, languageOf, sortEntries, markdownBlocks, resolvePath, isMarkdown, MAX_CHARS });';
+  + '\nObject.assign(globalThis, { parseStatus, markKey, holdsChange, parseHunks, buildRows, highlightLines, tokenizeLine, lexerLanguage, viewable, languageOf, sortEntries, markdownBlocks, resolvePath, isMarkdown, MAX_CHARS });';
 
 const TREE = { '/repo': [['d', 'src'], ['f', 'b.md'], ['f', 'a.md']], '/repo/src': [['f', 'main.go']] };
 
@@ -780,6 +780,19 @@ test('the status parser and helpers', async () => {
   });
   assert.equal(m.languageOf('a/b.tsx'), 'js');
   assert.equal(m.languageOf('Makefile'), 'txt');
+});
+
+test('on Windows, marks match the tree from a subfolder and across drive-letter case', async () => {
+  const { context: m } = await ready();
+  // Git reports C:/proj; the tree sits in c:\proj\sub and builds keys as `${root}/${relative}`.
+  const marks = m.parseStatus(' M sub/a.js\0?? sub/deep/b.js\0', 'C:/proj');
+  const root = 'c:\\proj\\sub';
+  assert.equal(marks[m.markKey(`${root}/a.js`)].mark, 'M');
+  assert.equal(marks[m.markKey(`${root}/deep/b.js`)].mark, 'A');
+  assert.ok(m.holdsChange(marks, `${root}/deep`));
+  assert.ok(!m.holdsChange(marks, `${root}/other`));
+  // POSIX paths are their own key.
+  assert.equal(m.markKey('/r/a b/c'), '/r/a b/c');
 });
 
 test('every icon is used, every used icon exists, and nothing here can write a file', () => {
