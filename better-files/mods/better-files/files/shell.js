@@ -103,7 +103,7 @@ mkdir -p -- "$(dirname -- "$2")" && t="$2.part" || exit 1
 type=$(curl -fsSL --max-time 20 --max-filesize 5000000 -o "$t" -w '%{content_type}' -- "$1") || exit 1
 case "$type" in *svg*) e=svg;; *png*) e=png;; *jpeg*|*jpg*) e=jpg;; *gif*) e=gif;; *webp*) e=webp;; *) exit 1;; esac
 mv -f -- "$t" "$2.$e" && printf %s "$2.$e"`;
-const FETCH_IMAGE_PS = `$url=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($args[0])); $base=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($args[1]))
+const FETCH_IMAGE_PS = `$url=[Uri]::UnescapeDataString($args[0]); $base=[Uri]::UnescapeDataString($args[1])
 try {
   $uri=[Uri]$url
   if (-not $uri.IsAbsoluteUri -or $uri.Scheme -notin @('http','https')) { exit 1 }
@@ -120,7 +120,7 @@ try {
     [Console]::Out.Write($copy)
   } finally { Remove-Item -LiteralPath $part -Force -ErrorAction SilentlyContinue }
 } catch { exit 1 } finally { Remove-Item -LiteralPath "$base.part" -Force -ErrorAction SilentlyContinue }`;
-const psData = (s) => `'${btoa(String.fromCharCode(...new TextEncoder().encode(String(s))))}'`;
+const psData = (s) => `'${encodeURIComponent(s).replaceAll("'", "%27")}'`;
 
 export function pickFetchImage(url, base, platform) {
   if (isWin(platform)) {

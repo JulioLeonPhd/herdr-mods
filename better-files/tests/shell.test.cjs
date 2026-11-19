@@ -136,9 +136,9 @@ test('pickFetchImage preserves the POSIX curl path and bounds PowerShell downloa
   const win = pickFetchImage(url, 'C:\\app\\.cache\\web-123', 'windows');
   assert.equal(win.program, 'powershell.exe');
   assert.deepEqual(win.args.slice(0, 3), ['-NoProfile', '-NoLogo', '-Command']);
-  assert.ok(win.args[3].includes('[Convert]::FromBase64String($args[0])'));
-  assert.match(win.args[3], /\} '[A-Za-z0-9+/=]+' '[A-Za-z0-9+/=]+'$/);
-  assert.ok(!win.args[3].includes(url), 'untrusted URLs are passed as base64 data');
+  assert.ok(win.args[3].includes('[Uri]::UnescapeDataString($args[0])'));
+  assert.ok(win.args[3].endsWith(`'${encodeURIComponent(url)}' '${encodeURIComponent('C:\\app\\.cache\\web-123')}'`));
+  assert.ok(!win.args[3].includes(url), 'untrusted URLs are passed as percent-encoded data');
   assert.ok(win.args[3].includes("http','https"));
   assert.ok(win.args[3].includes('AddDays(-1)'));
   assert.ok(win.args[3].includes('--max-time 20 --max-filesize 5000000'));

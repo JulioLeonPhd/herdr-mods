@@ -106,8 +106,8 @@ function world({ pictures = {}, spaceFolder = '/repo', focusOn = null, storage =
       if (bin === 'git' && args.includes('ls-files')) return top ? { code: 0, stdout: everything } : { code: 128, stdout: '' };
       if (bin === 'sh' && args[2] === 'fetch-image') return { code: 0, stdout: `${args[4]}.svg` };
       if (bin === 'powershell.exe' && args[3]?.includes('curl.exe')) {
-        const encodedBase = args[3].match(/\} '[A-Za-z0-9+/=]+' '([A-Za-z0-9+/=]+)'$/)?.[1];
-        const base = encodedBase && Buffer.from(encodedBase, 'base64').toString('utf8');
+        const encodedBase = args[3].match(/\} '[^']+' '([^']+)'$/)?.[1];
+        const base = encodedBase && decodeURIComponent(encodedBase);
         return base ? { code: 0, stdout: `${base}.svg` } : { code: 1, stdout: '' };
       }
       if (bin === 'powershell.exe' && args[3]?.startsWith('& { $src,$dir,$start,$ext,$old=$args;')) return { code: 0, stdout: 'v-m1-111-3.png' };
@@ -1053,7 +1053,7 @@ test('Windows Markdown previews fetch badges and copy relative images without sh
   assert.ok(!h.execs.some(([bin]) => bin === 'sh'));
   const commands = h.execs.filter(([bin]) => bin === 'powershell.exe').map((e) => e[4]);
   assert.equal(commands.filter((s) => s.includes('curl.exe')).length, 1);
-  assert.ok(commands.some((s) => s.includes('[Convert]::FromBase64String($args[0])')));
+  assert.ok(commands.some((s) => s.includes('[Uri]::UnescapeDataString($args[0])')));
   assert.ok(commands.some((s) => s.includes("'/repo/docs/pics/shot.png'")));
   const preview = strings(find(h.mod.render(), 'viewer-preview'));
   assert.match(preview, /image:mods\/better-files\/\.cache\/web-[0-9a-f]+\.svg/);
