@@ -63,6 +63,18 @@ test('pickListing windows quotes path with embedded single quote', async () => {
   assert.ok(r.args[3].endsWith("'C:\\it''s'"));
 });
 
+test('pickIndex windows uses bounded PowerShell traversal and preserves quoted roots', async () => {
+  const { pickIndex } = await load();
+  const r = pickIndex("C:\\it's", 12, 4000000, 'windows');
+  assert.equal(r.program, 'powershell.exe');
+  assert.ok(r.args[3].includes('$maxDepth=[int]$args[1]'));
+  assert.ok(r.args[3].includes('$maxBytes=[int]$args[2]'));
+  assert.ok(r.args[3].includes("[IO.FileAttributes]::ReparsePoint"));
+  assert.ok(r.args[3].includes("'C:\\it''s'"));
+  assert.ok(r.args[3].includes("'node_modules'"));
+  assert.equal(pickIndex('/tmp', 12, 4000000, 'macos'), null);
+});
+
 // --- pickCopyImage ---
 // Contract: src, cache folder, name start, extension, the copy it replaces; prints the copy's name.
 

@@ -22,7 +22,7 @@ const TREE = { '/repo': [['d', 'src'], ['f', 'b.md'], ['f', 'a.md']], '/repo/src
 // Every file under /repo, as git ls-files -z would list it.
 const EVERY = 'a.md\0b.md\0new.txt\0src/main.go\0';
 
-function world({ pictures = {}, spaceFolder = '/repo', focusOn = null, storage = {}, everything = EVERY, deleted = '', found = '', copyImage, diff = '', layout = {}, mode = 'sidebar', viewer, file, target, tree = TREE, status = ' M b.md\0M  src/main.go\0?? new.txt\0', editors = ['dev.zed.Zed'], top = '/repo', machine = null, cwd = '/repo', texts = {}, agents = [], known = [], sharedInit = {}, hcResult } = {}) {
+function world({ pictures = {}, spaceFolder = '/repo', focusOn = null, storage = {}, everything = EVERY, deleted = '', found = '', copyImage, diff = '', layout = {}, mode = 'sidebar', viewer, file, target, tree = TREE, status = ' M b.md\0M  src/main.go\0?? new.txt\0', editors = ['dev.zed.Zed'], top = '/repo', machine = null, cwd = '/repo', texts = {}, agents = [], known = [], sharedInit = {}, hcResult, platform = 'macos' } = {}) {
   const store = new Map(Object.entries(sharedInit));
   const ran = [], execs = [], sent = [], clipboard = [], closed = [], overlays = [], urls = [], scrolled = [];
   const live = { pictures: { ...pictures }, layout, panes: [{ pane: 'p1', tab: 'tab1', cwd, terminal: 'term1' }, ...(focusOn ? [focusOn] : [])], focused: focusOn ? { space: 's', tab: focusOn.tab, pane: focusOn.pane, cwd: null } : { space: 's', tab: 'tab1', pane: 'p1', cwd, terminal: 'term1' }, agents, texts: { ...texts } };
@@ -76,7 +76,7 @@ function world({ pictures = {}, spaceFolder = '/repo', focusOn = null, storage =
     Popover: { new: (id) => el().id(id) }, Textarea: { new: () => el() }, TextareaState: { new: state }, Input: { new: () => el() }, InputState: { new: state }, ScrollHandle: { new: () => ({ scroll_to_item: (i) => scrolled.push(i) }) },
     Scrollbar: { vertical: () => el() }, TextView: { markdown: (id, text) => el().id(id).child(`md:${text}`) }, v_virtual_list: (_id, count, sizes, key, render) => { const e = el().id('viewer-list'); if (Array.isArray(sizes) && sizes.length !== count) throw new Error('sizes'); for (let i = 0; i < count; i++) key(i); e.children(render({ start: 0, end: Math.min(count, 60) })); return e; }, Editor: { new: (s) => el().child(s.text) }, EditorState: { new: (o) => { const s = state(o); context.lastCode = s; return s; } },
     theme: () => new Proxy({}, { get: (_t, k) => `#${String(k)}` }),
-    settings: () => ({ font_family: 'Code', font_size: 14 }), window: () => ({ platform: 'macos' }),
+    settings: () => ({ font_family: 'Code', font_size: 14 }), window: () => ({ platform }),
     props: () => ({ mode, viewer, file, target, space: 's', overlay: 'ov1' }),
     // Space `s` is the active one; a pane with `space` set puts its tab in that space instead.
     // A focused file tab (`focusOn`) is its space's shown tab.
@@ -98,6 +98,8 @@ function world({ pictures = {}, spaceFolder = '/repo', focusOn = null, storage =
     hc: async (args) => { sent.push(args); return hcResult ?? { code: 0, stdout: '', stderr: '' }; },
     exec: async (bin, args, options) => {
       execs.push([bin, ...args]);
+      if (bin === 'powershell.exe' && args[3].includes('$maxDepth')) return { code: 0, stdout: found };
+      if (bin === 'sh' && platform === 'windows' && !options?.on) throw new Error('sh not installed');
       if (bin === 'sh' && args[2] === 'copy-image') return (typeof copyImage === 'function' ? copyImage(args) : copyImage) ?? { code: 0, stdout: `${args[5]}-${live.pictures[args[3]] ?? '111-3'}.${args[6]}` };
       if (bin === 'sh' && args[2] === 'index') return { code: 0, stdout: found };
       if (bin === 'git' && args.includes('--deleted')) return top ? { code: 0, stdout: deleted } : { code: 128, stdout: '' };
@@ -1149,6 +1151,17 @@ test('outside a repo the filter uses find, shallower in a home folder, and says 
   const home = await ready({ top: null, cwd: '/home/kim', tree: { '/home/kim': [] } });
   await typeFilter(home, 'x');
   assert.deepEqual(home.execs.find((e) => e[0] === 'sh' && e[3] === 'index').slice(4), ['5', '4000000']);
+});
+
+test('on Windows without sh, the non-Git filter finds and opens a nested file', async () => {
+  const cwd = "C:\\Kim's notes";
+  const h = await ready({ platform: 'windows', cwd, top: null, found: 'trip plans/itinerary.txt\0' });
+  await typeFilter(h, 'itinerary');
+  assert.deepEqual(rowIds(h), ['files-row-trip plans', 'files-row-trip plans/itinerary.txt']);
+  assert.ok(!h.execs.some(([bin]) => bin === 'sh'));
+  h.mod.filter.handlers.submit({}, h.cx);
+  assert.equal(tabs(h)[0][1].name, 'itinerary.txt');
+  assert.equal(Object.values(h.store.get('better-files.viewers'))[0].file.path, `${cwd}/trip plans/itinerary.txt`);
 });
 
 test('the list is read again when it is old, and a failed read says why', async () => {
