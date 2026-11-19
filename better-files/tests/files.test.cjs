@@ -22,7 +22,7 @@ const TREE = { '/repo': [['d', 'src'], ['f', 'b.md'], ['f', 'a.md']], '/repo/src
 // Every file under /repo, as git ls-files -z would list it.
 const EVERY = 'a.md\0b.md\0new.txt\0src/main.go\0';
 
-function world({ pictures = {}, spaceFolder = '/repo', focusOn = null, storage = {}, everything = EVERY, deleted = '', found = '', copyImage, diff = '', layout = {}, mode = 'sidebar', viewer, file, target, tree = TREE, status = ' M b.md\0M  src/main.go\0?? new.txt\0', editors = ['dev.zed.Zed'], top = '/repo', machine = null, cwd = '/repo', texts = {}, agents = [], known = [], sharedInit = {}, hcResult } = {}) {
+function world({ platform = 'macos', pictures = {}, spaceFolder = '/repo', focusOn = null, storage = {}, everything = EVERY, deleted = '', found = '', copyImage, diff = '', layout = {}, mode = 'sidebar', viewer, file, target, tree = TREE, status = ' M b.md\0M  src/main.go\0?? new.txt\0', editors = ['dev.zed.Zed'], top = '/repo', machine = null, cwd = '/repo', texts = {}, agents = [], known = [], sharedInit = {}, hcResult } = {}) {
   const store = new Map(Object.entries(sharedInit));
   const ran = [], execs = [], sent = [], clipboard = [], closed = [], overlays = [], urls = [], scrolled = [];
   const live = { pictures: { ...pictures }, layout, panes: [{ pane: 'p1', tab: 'tab1', cwd, terminal: 'term1' }, ...(focusOn ? [focusOn] : [])], focused: focusOn ? { space: 's', tab: focusOn.tab, pane: focusOn.pane, cwd: null } : { space: 's', tab: 'tab1', pane: 'p1', cwd, terminal: 'term1' }, agents, texts: { ...texts } };
@@ -76,7 +76,7 @@ function world({ pictures = {}, spaceFolder = '/repo', focusOn = null, storage =
     Popover: { new: (id) => el().id(id) }, Textarea: { new: () => el() }, TextareaState: { new: state }, Input: { new: () => el() }, InputState: { new: state }, ScrollHandle: { new: () => ({ scroll_to_item: (i) => scrolled.push(i) }) },
     Scrollbar: { vertical: () => el() }, TextView: { markdown: (id, text) => el().id(id).child(`md:${text}`) }, v_virtual_list: (_id, count, sizes, key, render) => { const e = el().id('viewer-list'); if (Array.isArray(sizes) && sizes.length !== count) throw new Error('sizes'); for (let i = 0; i < count; i++) key(i); e.children(render({ start: 0, end: Math.min(count, 60) })); return e; }, Editor: { new: (s) => el().child(s.text) }, EditorState: { new: (o) => { const s = state(o); context.lastCode = s; return s; } },
     theme: () => new Proxy({}, { get: (_t, k) => `#${String(k)}` }),
-    settings: () => ({ font_family: 'Code', font_size: 14 }), window: () => ({ platform: 'macos' }),
+    settings: () => ({ font_family: 'Code', font_size: 14 }), window: () => ({ platform }),
     props: () => ({ mode, viewer, file, target, space: 's', overlay: 'ov1' }),
     // Space `s` is the active one; a pane with `space` set puts its tab in that space instead.
     // A focused file tab (`focusOn`) is its space's shown tab.
@@ -103,6 +103,11 @@ function world({ pictures = {}, spaceFolder = '/repo', focusOn = null, storage =
       if (bin === 'git' && args.includes('--deleted')) return top ? { code: 0, stdout: deleted } : { code: 128, stdout: '' };
       if (bin === 'git' && args.includes('ls-files')) return top ? { code: 0, stdout: everything } : { code: 128, stdout: '' };
       if (bin === 'sh' && args[2] === 'fetch-image') return { code: 0, stdout: `${args[4]}.svg` };
+      if (bin === 'powershell.exe' && args[3]?.startsWith('& { $url,$base=$args;')) {
+        const base = args[3].match(/'(\/app\/mods\/better-files\/\.cache\/web-[0-9a-f]+)'$/)?.[1];
+        return base ? { code: 0, stdout: `${base}.svg` } : { code: 1, stdout: '' };
+      }
+      if (bin === 'powershell.exe' && args[3]?.startsWith('& { $src,$dir,$start,$ext,$old=$args;')) return { code: 0, stdout: 'v-m1-111-3.png' };
       if (bin === 'sh') return { code: 0, stdout: (tree[args.at(-1)] ?? []).flatMap(([k, n]) => [k, n, '']).join('\0').replace(/\0\0/g, '\0') };
       if (bin === 'mdfind') return { code: 0, stdout: editors.some((b) => args[0].includes(b)) ? '/Apps/It.app\n' : '' };
       if (bin === 'git' && args[0] === 'rev-parse') return top ? { code: 0, stdout: `${top}\n` } : { code: 128, stdout: '' };
@@ -1033,6 +1038,24 @@ test('the preview draws code blocks, rows of badges from the web, and jumps to a
 
   await h.mod.close();
   assert.ok(!h.execs.some((e) => e[0] === 'rm' && e.some((a) => /web-/.test(a))), 'closing keeps the shared downloads');
+});
+
+test('Windows Markdown previews fetch badges and copy relative images without sh', async () => {
+  const badge = "https://img.shields.io/badge/it's-blue?style=flat&logo=node.js";
+  const file = { path: '/repo/docs/guide.md', root: '/repo', on: null };
+  const h = await mdWorld({
+    platform: 'windows', file,
+    texts: { [file.path]: `![Badge](${badge})\n\n![Local](pics/shot.png)\n\n![Blocked](ftp://example.com/blocked.png)` },
+  });
+  assert.ok(!h.execs.some(([bin]) => bin === 'sh'));
+  const commands = h.execs.filter(([bin]) => bin === 'powershell.exe').map((e) => e[4]);
+  assert.equal(commands.filter((s) => s.startsWith('& { $url,$base=$args;')).length, 1);
+  assert.ok(commands.some((s) => s.includes("'https://img.shields.io/badge/it''s-blue?style=flat&logo=node.js'")));
+  assert.ok(commands.some((s) => s.includes("'/repo/docs/pics/shot.png'")));
+  assert.ok(!commands.some((s) => s.includes('ftp://')));
+  const preview = strings(find(h.mod.render(), 'viewer-preview'));
+  assert.match(preview, /image:mods\/better-files\/\.cache\/web-[0-9a-f]+\.svg/);
+  assert.match(preview, /image:mods\/better-files\/\.cache\/v-m1-111-3\.png/);
 });
 
 const typeFilter = async (h, text) => { h.mod.filter.set_value(text); await h.flush(); };

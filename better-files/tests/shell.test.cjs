@@ -93,6 +93,46 @@ test('pickCopyImage windows passes the same five arguments to a PowerShell port'
   assert.ok(script.includes('(Split-Path -Leaf $o) -ne $name'));
 });
 
+test('pickFetchImage preserves the POSIX curl path and bounds PowerShell downloads', async () => {
+  const { pickFetchImage } = await load();
+  const url = 'https://img.shields.io/badge/A-blue';
+  const base = '/app/mods/better-files/.cache/web-123';
+  const posix = pickFetchImage(url, base, 'macos');
+  assert.equal(posix.program, 'sh');
+  assert.match(posix.args[1], /curl -fsSL --max-time 20 --max-filesize 5000000/);
+  const win = pickFetchImage(url, 'C:\\app\\.cache\\web-123', 'windows');
+  assert.equal(win.program, 'powershell.exe');
+  assert.deepEqual(win.args.slice(0, 3), ['-NoProfile', '-NoLogo', '-Command']);
+  assert.ok(win.args[3].includes("'https://img.shields.io/badge/A-blue'"));
+  assert.ok(win.args[3].includes("http','https"));
+  assert.ok(win.args[3].includes('AddDays(-1)'));
+  assert.ok(win.args[3].includes('Timeout=20000'));
+  assert.ok(win.args[3].includes('$total -gt 5000000'));
+});
+
+test('Windows fetch script downloads a loopback badge without sh', { skip: process.platform !== 'win32' }, async () => {
+  const { pickFetchImage } = await load();
+  const http = require('node:http');
+  const os = require('node:os');
+  const { spawnSync } = require('node:child_process');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'better-files-badge-'));
+  const server = http.createServer((_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'image/svg+xml' });
+    res.end('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+  });
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${server.address().port}/badge`;
+    const { program, args } = pickFetchImage(url, path.join(dir, 'web-test'), 'windows');
+    const result = spawnSync(program, args, { encoding: 'utf8', timeout: 30000 });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.readFileSync(result.stdout, 'utf8'), '<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // --- pickRm ---
 
 test('pickRm macOS is byte-for-byte rm -f --', async () => {
