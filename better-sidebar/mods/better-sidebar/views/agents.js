@@ -19,6 +19,8 @@ import {
   layout,
 } from "herdr";
 import { findNode } from "./find-node.js";
+import { loadSettings } from "../settings.js";
+import { DEFAULT_SETTINGS } from "../defaults.js";
 import { TEXT, Icon, IconButton, GroupHeader, Menu, MenuLabel, MenuOption } from "./ui.js";
 
 // The sidebar's rail goes by its width, not a flag: dragging its edge narrows it too.
@@ -150,7 +152,14 @@ export class Agents {
     // Each agent's last state and when it changed (ms), kept across restarts.
     this.changed = JSON.parse(localStorage.getItem("changed") ?? "{}");
     this.pins = JSON.parse(localStorage.getItem("pins") ?? "[]");
+    this.nameBy = DEFAULT_SETTINGS.agent_name;
     cx.timer.every(30000, (cx) => cx.notify());
+    // The spaces view reports problems with the settings; this one only needs the name.
+    cx.spawn(async (cx) => {
+      const { settings } = await loadSettings("better-sidebar", DEFAULT_SETTINGS);
+      this.nameBy = settings.agent_name;
+      cx.notify();
+    });
   }
 
   // Stamps agents whose state changed. Done and idle count as one: looking at a
@@ -607,14 +616,20 @@ export class Agents {
 
   // A tab with no agent, under its space in the lists view: its program and its name.
   tabRow(w, tab, lit, t) {
-    const l = lead(tab);
+    const all = panes();
+    const l = lead(tab, all);
     // The tab's title, as Herdr's tab bar shows it.
     const name = tab.name;
     const prog = l?.program?.name;
-    // A mod's pane runs no program, but the mod may publish an icon, as Better Tabs reads it.
-    const modIcon = shared("mod-icons")?.[panes().find((p) => p.tab === tab.id && p.mod)?.mod];
-    const pic =
-      icon(l?.program, 16, t.dim) ?? (modIcon ? svg(modIcon).size(16).flex_none().text_color(t.dim) : null);
+    // A mod's pane runs no program, but any of them may publish its own icon in
+    // shared("pane-heads"), as a file tab does, else the mod may publish one, as Better Tabs reads them.
+    const mods = all.filter((p) => p.tab === tab.id && p.mod);
+    const heads = shared("pane-heads") ?? {};
+    const head = heads[mods.find((p) => heads[p.pane]?.icon)?.pane];
+    const pub = head
+      ? { icon: head.icon, tint: !head.color }
+      : { icon: shared("mod-icons")?.[mods[0]?.mod], tint: true };
+    const pic = icon(l?.program, 16, t.dim) ?? icon(pub, 16, t.dim);
     return h_flex()
       .id(`tab-${tab.id}`)
       .px(8)
@@ -660,12 +675,19 @@ export class Agents {
       .child(pic);
   }
 
-  // The tab's title, then quietly its space; nested under its space's row, its program.
+  // What a row is called: its tab's title, as Herdr's tab bar shows it, or with
+  // `agent_name: "title"` the terminal's live title, what the agent says it's doing.
+  // Either falls back to the other. The icon says which agent it is.
+  rowName(a, label) {
+    const tab = a.tab_name || label;
+    return this.nameBy === "title" ? clean(a.title) || tab : tab;
+  }
+
+  // The row's name, then quietly its space; nested under its space's row, its program.
   agentName(a, view, t) {
     const label = view.label(a);
     const namesSpace = !view.nested;
-    // A row is its tab's title, as Herdr's tab bar shows it; the icon says which agent.
-    const name = a.tab_name || label;
+    const name = this.rowName(a, label);
     const prog = a.program?.name;
     const idle = a.status === "idle" && !a.focused;
     return h_flex()
