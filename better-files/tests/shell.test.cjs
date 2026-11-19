@@ -4,7 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-
+const { execFileSync } = require('node:child_process');
 const root = path.join(__dirname, '../mods/better-files');
 const load = () =>
   import(`data:text/javascript,${encodeURIComponent(fs.readFileSync(path.join(root, 'files/shell.js'), 'utf8'))}`);
@@ -73,6 +73,20 @@ test('pickIndex windows uses bounded PowerShell traversal and preserves quoted r
   assert.ok(r.args[3].includes("'C:\\it''s'"));
   assert.ok(r.args[3].includes("'node_modules'"));
   assert.equal(pickIndex('/tmp', 12, 4000000, 'macos'), null);
+});
+
+test('pickIndex Windows PowerShell finds nested files and prunes excluded folders', { skip: process.platform !== 'win32' }, async () => {
+  const { pickIndex } = await load();
+  const temp = fs.mkdtempSync(path.join(require('node:os').tmpdir(), "filter Box's "));
+  try {
+    for (const dir of ['nested/deeper', 'node_modules', '.git']) fs.mkdirSync(path.join(temp, dir), { recursive: true });
+    for (const file of ['nested/deeper/needle-é.txt', 'node_modules/ignored.txt', '.git/ignored.txt']) fs.writeFileSync(path.join(temp, file), 'fixture');
+    const { program, args } = pickIndex(temp, 10, 4_000_000, 'windows');
+    const result = execFileSync(program, args, { encoding: 'utf8' }).split('\0').filter(Boolean);
+    assert.deepEqual(result, ['nested/deeper/needle-é.txt']);
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
 });
 
 // --- pickCopyImage ---
