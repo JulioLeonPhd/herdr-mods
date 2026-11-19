@@ -84,7 +84,14 @@ test('pickIndex Windows PowerShell finds nested files and prunes excluded folder
     const { program, args } = pickIndex(temp, 10, 4_000_000, 'windows');
     const result = execFileSync(program, args, { encoding: 'utf8' }).split('\0').filter(Boolean);
     assert.deepEqual(result, ['nested/deeper/needle-é.txt']);
+    const capped = pickIndex(temp, 10, 1, 'windows');
+    assert.equal(execFileSync(capped.program, capped.args, { encoding: 'utf8' }), '.\0');
+    const exact = pickIndex(temp, 10, Buffer.byteLength('nested/deeper/needle-é.txt\0'), 'windows');
+    assert.equal(execFileSync(exact.program, exact.args, { encoding: 'utf8' }), 'nested/deeper/needle-é.txt\0');
+    const missing = pickIndex(path.join(temp, 'missing'), 10, 1, 'windows');
+    assert.throws(() => execFileSync(missing.program, missing.args, { stdio: 'pipe' }), { status: 1 });
   } finally {
+    // Remove the fixture even if traversal fails.
     fs.rmSync(temp, { recursive: true, force: true });
   }
 });
@@ -129,30 +136,44 @@ test('pickFetchImage preserves the POSIX curl path and bounds PowerShell downloa
   const win = pickFetchImage(url, 'C:\\app\\.cache\\web-123', 'windows');
   assert.equal(win.program, 'powershell.exe');
   assert.deepEqual(win.args.slice(0, 3), ['-NoProfile', '-NoLogo', '-Command']);
-  assert.ok(win.args[3].includes("'https://img.shields.io/badge/A-blue'"));
+  assert.ok(win.args[3].includes('[Convert]::FromBase64String($args[0])'));
+  assert.match(win.args[3], /\} '[A-Za-z0-9+/=]+' '[A-Za-z0-9+/=]+'$/);
+  assert.ok(!win.args[3].includes(url), 'untrusted URLs are passed as base64 data');
   assert.ok(win.args[3].includes("http','https"));
   assert.ok(win.args[3].includes('AddDays(-1)'));
-  assert.ok(win.args[3].includes('Timeout=20000'));
-  assert.ok(win.args[3].includes('$total -gt 5000000'));
+  assert.ok(win.args[3].includes('--max-time 20 --max-filesize 5000000'));
+  assert.ok(win.args[3].includes("--proto '=http,https' --proto-redir '=http,https'"));
+  assert.ok(!win.args[3].includes('HttpWebRequest'));
+  assert.equal(posix.args[1], `for c in "$2".*; do case "$c" in *.part) continue;; esac; [ -f "$c" ] && [ -n "$(find "$c" -mmin -1440)" ] && { printf %s "$c"; exit 0; }; done
+mkdir -p -- "$(dirname -- "$2")" && t="$2.part" || exit 1
+type=$(curl -fsSL --max-time 20 --max-filesize 5000000 -o "$t" -w '%{content_type}' -- "$1") || exit 1
+case "$type" in *svg*) e=svg;; *png*) e=png;; *jpeg*|*jpg*) e=jpg;; *gif*) e=gif;; *webp*) e=webp;; *) exit 1;; esac
+mv -f -- "$t" "$2.$e" && printf %s "$2.$e"`);
 });
 
 test('Windows fetch script downloads a loopback badge without sh', { skip: process.platform !== 'win32' }, async () => {
   const { pickFetchImage } = await load();
   const http = require('node:http');
   const os = require('node:os');
-  const { spawnSync } = require('node:child_process');
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'better-files-badge-'));
+  const execFile = require('node:util').promisify(require('node:child_process').execFile);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "better-files ‘badge’'s "));
+  let requests = 0;
   const server = http.createServer((_req, res) => {
+    requests++;
     res.writeHead(200, { 'Content-Type': 'image/svg+xml' });
     res.end('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
   });
   try {
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const url = `http://127.0.0.1:${server.address().port}/badge`;
-    const { program, args } = pickFetchImage(url, path.join(dir, 'web-test'), 'windows');
-    const result = spawnSync(program, args, { encoding: 'utf8', timeout: 30000 });
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(fs.readFileSync(result.stdout, 'utf8'), '<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+    const url = `http://127.0.0.1:${server.address().port}/badge/it's-‘quoted’`;
+    const base = `${dir.replaceAll('\\', '/')}/web-test`;
+    const { program, args } = pickFetchImage(url, base, 'windows');
+    const fetch = () => execFile(program, args, { encoding: 'utf8', timeout: 30000 });
+    const { stdout } = await fetch();
+    assert.equal(stdout, `${base}.svg`);
+    assert.equal(fs.readFileSync(stdout, 'utf8'), '<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+    assert.equal((await fetch()).stdout, stdout);
+    assert.equal(requests, 1);
   } finally {
     await new Promise((resolve) => server.close(resolve));
     fs.rmSync(dir, { recursive: true, force: true });

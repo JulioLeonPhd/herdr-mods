@@ -11,7 +11,9 @@ export const MAX_INDEXED = 40000;
 export function indexOf(stdout) {
   const text = String(stdout ?? "");
   const pieces = text.split("\0");
-  const whole = text.endsWith("\0") || !text;
+  const marked = text.endsWith("\0") && pieces.at(-2) === ".";
+  if (marked) pieces.splice(-2, 2);
+  const whole = (text.endsWith("\0") || !text) && !marked;
   if (!whole) pieces.pop();
   const files = new Set();
   let capped = !whole;

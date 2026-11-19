@@ -105,8 +105,9 @@ function world({ pictures = {}, spaceFolder = '/repo', focusOn = null, storage =
       if (bin === 'git' && args.includes('--deleted')) return top ? { code: 0, stdout: deleted } : { code: 128, stdout: '' };
       if (bin === 'git' && args.includes('ls-files')) return top ? { code: 0, stdout: everything } : { code: 128, stdout: '' };
       if (bin === 'sh' && args[2] === 'fetch-image') return { code: 0, stdout: `${args[4]}.svg` };
-      if (bin === 'powershell.exe' && args[3]?.startsWith('& { $url,$base=$args;')) {
-        const base = args[3].match(/'(\/app\/mods\/better-files\/\.cache\/web-[0-9a-f]+)'$/)?.[1];
+      if (bin === 'powershell.exe' && args[3]?.includes('curl.exe')) {
+        const encodedBase = args[3].match(/\} '[A-Za-z0-9+/=]+' '([A-Za-z0-9+/=]+)'$/)?.[1];
+        const base = encodedBase && Buffer.from(encodedBase, 'base64').toString('utf8');
         return base ? { code: 0, stdout: `${base}.svg` } : { code: 1, stdout: '' };
       }
       if (bin === 'powershell.exe' && args[3]?.startsWith('& { $src,$dir,$start,$ext,$old=$args;')) return { code: 0, stdout: 'v-m1-111-3.png' };
@@ -1051,10 +1052,9 @@ test('Windows Markdown previews fetch badges and copy relative images without sh
   });
   assert.ok(!h.execs.some(([bin]) => bin === 'sh'));
   const commands = h.execs.filter(([bin]) => bin === 'powershell.exe').map((e) => e[4]);
-  assert.equal(commands.filter((s) => s.startsWith('& { $url,$base=$args;')).length, 1);
-  assert.ok(commands.some((s) => s.includes("'https://img.shields.io/badge/it''s-blue?style=flat&logo=node.js'")));
+  assert.equal(commands.filter((s) => s.includes('curl.exe')).length, 1);
+  assert.ok(commands.some((s) => s.includes('[Convert]::FromBase64String($args[0])')));
   assert.ok(commands.some((s) => s.includes("'/repo/docs/pics/shot.png'")));
-  assert.ok(!commands.some((s) => s.includes('ftp://')));
   const preview = strings(find(h.mod.render(), 'viewer-preview'));
   assert.match(preview, /image:mods\/better-files\/\.cache\/web-[0-9a-f]+\.svg/);
   assert.match(preview, /image:mods\/better-files\/\.cache\/v-m1-111-3\.png/);
@@ -1072,6 +1072,9 @@ test('the filter index lists every file once, with the folders they are in', asy
   const cut = m.indexOf('one.md\0two.md\0thr');
   assert.deepEqual([...cut.files], ['one.md', 'two.md'], 'a name cut short is dropped');
   assert.equal(cut.capped, true);
+  const windowsCut = m.indexOf('one.md\0.\0');
+  assert.deepEqual([...windowsCut.files], ['one.md']);
+  assert.equal(windowsCut.capped, true);
   const many = m.indexOf(Array.from({ length: m.MAX_INDEXED + 5 }, (_, i) => `f${i}`).join('\0') + '\0');
   assert.equal(many.files.length, m.MAX_INDEXED);
   assert.equal(many.capped, true);

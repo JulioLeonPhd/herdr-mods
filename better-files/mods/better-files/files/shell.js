@@ -32,7 +32,7 @@ export function pickListing(path, perFolder, platform) {
   };
 }
 
-const INDEX_PS = `$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.Encoding]::UTF8; $root=$args[0]; $maxDepth=[int]$args[1]; $maxBytes=[int]$args[2]; if (-not (Test-Path -LiteralPath $root -PathType Container)) { [Console]::Error.WriteLine('Cannot list this folder.'); exit 1 }; $stack=New-Object 'System.Collections.Stack'; $stack.Push(@($root,0,'')); $bytes=0; while ($stack.Count -gt 0 -and $bytes -lt $maxBytes) { $cur=$stack.Pop(); $dir=$cur[0]; $depth=$cur[1]; $prefix=$cur[2]; try { $items=Get-ChildItem -LiteralPath $dir -Force -ErrorAction Stop } catch { [Console]::Error.WriteLine('Cannot list this folder.'); exit 1 }; foreach ($item in $items) { if ($item.Name -in @('.git','node_modules','.venv','__pycache__','target','dist','.next')) { continue }; if ($item.PSIsContainer) { if ($depth -lt $maxDepth -and -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { $stack.Push(@($item.FullName,($depth+1),($prefix+$item.Name+'/'))) }; continue }; $rel=$prefix+$item.Name; $line=$rel+[char]0; $n=[Text.Encoding]::UTF8.GetByteCount($line); if ($bytes+$n -gt $maxBytes) { $bytes=$maxBytes; break }; [Console]::Out.Write($line); $bytes+=$n } }`;
+const INDEX_PS = `$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.Encoding]::UTF8; $root=$args[0]; $maxDepth=[int]$args[1]; $maxBytes=[int]$args[2]; if (-not (Test-Path -LiteralPath $root -PathType Container)) { [Console]::Error.WriteLine('Cannot list this folder.'); exit 1 }; $stack=New-Object 'System.Collections.Stack'; $stack.Push(@($root,0,'')); $bytes=0; $capped=$false; while ($stack.Count -gt 0 -and $bytes -lt $maxBytes) { $cur=$stack.Pop(); $dir=$cur[0]; $depth=$cur[1]; $prefix=$cur[2]; try { $items=Get-ChildItem -LiteralPath $dir -Force -ErrorAction Stop } catch { if ($dir -eq $root) { [Console]::Error.WriteLine('Cannot list this folder.'); exit 1 }; continue }; foreach ($item in $items) { if ($item.Name -in @('.git','node_modules','.venv','__pycache__','target','dist','.next')) { continue }; if ($item.PSIsContainer) { if ($depth -lt $maxDepth -and -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { $stack.Push(@($item.FullName,($depth+1),($prefix+$item.Name+'/'))) }; continue }; $rel=$prefix+$item.Name; $line=$rel+[char]0; $n=[Text.Encoding]::UTF8.GetByteCount($line); if ($bytes+$n -gt $maxBytes) { $capped=$true; break }; [Console]::Out.Write($line); $bytes+=$n } }; if ($stack.Count -gt 0 -and $bytes -ge $maxBytes) { $capped=$true }; if ($capped) { [Console]::Out.Write('.'+[char]0) }`;
 
 export function pickIndex(root, depth, bytes, platform) {
   if (isWin(platform)) return {
@@ -97,31 +97,36 @@ export function pickCopyImage(src, cacheDir, start, ext, old, platform) {
   return { program: "sh", args: ["-c", COPY_IMAGE, "copy-image", src, cacheDir, start, ext, old] };
 }
 
-// Remote Markdown images, bounded like the POSIX curl path; only http(s) URLs are accepted.
-const FETCH_IMAGE_PS = `param()
-$url,$base=$args
+// This is the viewer's original POSIX script; keep its command and arguments unchanged.
+export const FETCH_IMAGE = `for c in "$2".*; do case "$c" in *.part) continue;; esac; [ -f "$c" ] && [ -n "$(find "$c" -mmin -1440)" ] && { printf %s "$c"; exit 0; }; done
+mkdir -p -- "$(dirname -- "$2")" && t="$2.part" || exit 1
+type=$(curl -fsSL --max-time 20 --max-filesize 5000000 -o "$t" -w '%{content_type}' -- "$1") || exit 1
+case "$type" in *svg*) e=svg;; *png*) e=png;; *jpeg*|*jpg*) e=jpg;; *gif*) e=gif;; *webp*) e=webp;; *) exit 1;; esac
+mv -f -- "$t" "$2.$e" && printf %s "$2.$e"`;
+const FETCH_IMAGE_PS = `$url=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($args[0])); $base=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($args[1]))
 try {
   $uri=[Uri]$url
   if (-not $uri.IsAbsoluteUri -or $uri.Scheme -notin @('http','https')) { exit 1 }
   foreach ($c in (Get-ChildItem -LiteralPath (Split-Path -Parent $base) -Filter "$(Split-Path -Leaf $base).*" -File -ErrorAction SilentlyContinue)) {
-    if ($c.Extension -ne '.part' -and $c.LastWriteTimeUtc -gt [DateTime]::UtcNow.AddDays(-1)) { [Console]::Out.Write($c.FullName); exit 0 }
+    if ($c.Extension -ne '.part' -and $c.LastWriteTimeUtc -gt [DateTime]::UtcNow.AddDays(-1)) { [Console]::Out.Write($base + $c.Extension); exit 0 }
   }
   $dir=Split-Path -Parent $base; New-Item -ItemType Directory -Force -Path $dir -ErrorAction Stop | Out-Null
-  $part="$base.part"; $request=[Net.HttpWebRequest]::Create($uri); $request.Timeout=20000; $request.ReadWriteTimeout=20000
-  $response=$request.GetResponse(); try {
-    $type=$response.ContentType
+  $part="$base.part"
+  try {
+    $type=& curl.exe -fsSL --max-time 20 --max-filesize 5000000 --proto '=http,https' --proto-redir '=http,https' -o $part -w '%{content_type}' -- $url
+    if ($LASTEXITCODE -ne 0) { exit 1 }
     $ext=if ($type -match 'svg') {'svg'} elseif ($type -match 'png') {'png'} elseif ($type -match 'jpe?g') {'jpg'} elseif ($type -match 'gif') {'gif'} elseif ($type -match 'webp') {'webp'} else { exit 1 }
-$stream=$response.GetResponseStream(); $output=[IO.File]::Create($part); $buffer=New-Object byte[] 81920; $total=0
-try { while (($n=$stream.Read($buffer,0,$buffer.Length)) -gt 0) { $total+=$n; if ($total -gt 5000000) { exit 1 }; $output.Write($buffer,0,$n) } } finally { $stream.Dispose(); $output.Dispose() }
-  } finally { $response.Close() }
-  $copy="$base.$ext"; Move-Item -LiteralPath $part -Destination $copy -Force -ErrorAction Stop; [Console]::Out.Write($copy)
+    $copy="$base.$ext"; Move-Item -LiteralPath $part -Destination $copy -Force -ErrorAction Stop
+    [Console]::Out.Write($copy)
+  } finally { Remove-Item -LiteralPath $part -Force -ErrorAction SilentlyContinue }
 } catch { exit 1 } finally { Remove-Item -LiteralPath "$base.part" -Force -ErrorAction SilentlyContinue }`;
+const psData = (s) => `'${btoa(String.fromCharCode(...new TextEncoder().encode(String(s))))}'`;
 
 export function pickFetchImage(url, base, platform) {
   if (isWin(platform)) {
     return {
       program: "powershell.exe",
-      args: ["-NoProfile", "-NoLogo", "-Command", `& { ${FETCH_IMAGE_PS} } ${[url, base].map(psQuote).join(" ")}`],
+      args: ["-NoProfile", "-NoLogo", "-Command", `& { ${FETCH_IMAGE_PS} } ${psData(url)} ${psData(base)}`],
     };
   }
   return { program: "sh", args: ["-c", FETCH_IMAGE, "fetch-image", url, base] };
