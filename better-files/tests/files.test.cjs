@@ -105,6 +105,11 @@ function world({ pictures = {}, spaceFolder = '/repo', focusOn = null, storage =
       if (bin === 'git' && args.includes('--deleted')) return top ? { code: 0, stdout: deleted } : { code: 128, stdout: '' };
       if (bin === 'git' && args.includes('ls-files')) return top ? { code: 0, stdout: everything } : { code: 128, stdout: '' };
       if (bin === 'sh' && args[2] === 'fetch-image') return { code: 0, stdout: `${args[4]}.svg` };
+      if (bin === 'powershell.exe' && args[3]?.startsWith('& { $url,$base=$args;')) {
+        const base = args[3].match(/'(\/app\/mods\/better-files\/\.cache\/web-[0-9a-f]+)'$/)?.[1];
+        return base ? { code: 0, stdout: `${base}.svg` } : { code: 1, stdout: '' };
+      }
+      if (bin === 'powershell.exe' && args[3]?.startsWith('& { $src,$dir,$start,$ext,$old=$args;')) return { code: 0, stdout: 'v-m1-111-3.png' };
       if (bin === 'sh') return { code: 0, stdout: (tree[args.at(-1)] ?? []).flatMap(([k, n]) => [k, n, '']).join('\0').replace(/\0\0/g, '\0') };
       if (bin === 'mdfind') return { code: 0, stdout: editors.some((b) => args[0].includes(b)) ? '/Apps/It.app\n' : '' };
       if (bin === 'git' && args[0] === 'rev-parse') return top ? { code: 0, stdout: `${top}\n` } : { code: 128, stdout: '' };
@@ -1035,6 +1040,24 @@ test('the preview draws code blocks, rows of badges from the web, and jumps to a
 
   await h.mod.close();
   assert.ok(!h.execs.some((e) => e[0] === 'rm' && e.some((a) => /web-/.test(a))), 'closing keeps the shared downloads');
+});
+
+test('Windows Markdown previews fetch badges and copy relative images without sh', async () => {
+  const badge = "https://img.shields.io/badge/it's-blue?style=flat&logo=node.js";
+  const file = { path: '/repo/docs/guide.md', root: '/repo', on: null };
+  const h = await mdWorld({
+    platform: 'windows', file,
+    texts: { [file.path]: `![Badge](${badge})\n\n![Local](pics/shot.png)\n\n![Blocked](ftp://example.com/blocked.png)` },
+  });
+  assert.ok(!h.execs.some(([bin]) => bin === 'sh'));
+  const commands = h.execs.filter(([bin]) => bin === 'powershell.exe').map((e) => e[4]);
+  assert.equal(commands.filter((s) => s.startsWith('& { $url,$base=$args;')).length, 1);
+  assert.ok(commands.some((s) => s.includes("'https://img.shields.io/badge/it''s-blue?style=flat&logo=node.js'")));
+  assert.ok(commands.some((s) => s.includes("'/repo/docs/pics/shot.png'")));
+  assert.ok(!commands.some((s) => s.includes('ftp://')));
+  const preview = strings(find(h.mod.render(), 'viewer-preview'));
+  assert.match(preview, /image:mods\/better-files\/\.cache\/web-[0-9a-f]+\.svg/);
+  assert.match(preview, /image:mods\/better-files\/\.cache\/v-m1-111-3\.png/);
 });
 
 const typeFilter = async (h, text) => { h.mod.filter.set_value(text); await h.flush(); };

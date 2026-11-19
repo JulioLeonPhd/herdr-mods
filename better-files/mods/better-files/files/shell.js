@@ -97,6 +97,36 @@ export function pickCopyImage(src, cacheDir, start, ext, old, platform) {
   return { program: "sh", args: ["-c", COPY_IMAGE, "copy-image", src, cacheDir, start, ext, old] };
 }
 
+// Remote Markdown images, bounded like the POSIX curl path; only http(s) URLs are accepted.
+const FETCH_IMAGE_PS = `param()
+$url,$base=$args
+try {
+  $uri=[Uri]$url
+  if (-not $uri.IsAbsoluteUri -or $uri.Scheme -notin @('http','https')) { exit 1 }
+  foreach ($c in (Get-ChildItem -LiteralPath (Split-Path -Parent $base) -Filter "$(Split-Path -Leaf $base).*" -File -ErrorAction SilentlyContinue)) {
+    if ($c.Extension -ne '.part' -and $c.LastWriteTimeUtc -gt [DateTime]::UtcNow.AddDays(-1)) { [Console]::Out.Write($c.FullName); exit 0 }
+  }
+  $dir=Split-Path -Parent $base; New-Item -ItemType Directory -Force -Path $dir -ErrorAction Stop | Out-Null
+  $part="$base.part"; $request=[Net.HttpWebRequest]::Create($uri); $request.Timeout=20000; $request.ReadWriteTimeout=20000
+  $response=$request.GetResponse(); try {
+    $type=$response.ContentType
+    $ext=if ($type -match 'svg') {'svg'} elseif ($type -match 'png') {'png'} elseif ($type -match 'jpe?g') {'jpg'} elseif ($type -match 'gif') {'gif'} elseif ($type -match 'webp') {'webp'} else { exit 1 }
+$stream=$response.GetResponseStream(); $output=[IO.File]::Create($part); $buffer=New-Object byte[] 81920; $total=0
+try { while (($n=$stream.Read($buffer,0,$buffer.Length)) -gt 0) { $total+=$n; if ($total -gt 5000000) { exit 1 }; $output.Write($buffer,0,$n) } } finally { $stream.Dispose(); $output.Dispose() }
+  } finally { $response.Close() }
+  $copy="$base.$ext"; Move-Item -LiteralPath $part -Destination $copy -Force -ErrorAction Stop; [Console]::Out.Write($copy)
+} catch { exit 1 } finally { Remove-Item -LiteralPath "$base.part" -Force -ErrorAction SilentlyContinue }`;
+
+export function pickFetchImage(url, base, platform) {
+  if (isWin(platform)) {
+    return {
+      program: "powershell.exe",
+      args: ["-NoProfile", "-NoLogo", "-Command", `& { ${FETCH_IMAGE_PS} } ${[url, base].map(psQuote).join(" ")}`],
+    };
+  }
+  return { program: "sh", args: ["-c", FETCH_IMAGE, "fetch-image", url, base] };
+}
+
 // --- Cache cleanup on tab close ---
 // Wire contract (both): always exit 0; missing paths are harmless.
 
