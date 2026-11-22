@@ -1,6 +1,6 @@
 # Herdr Mods
 
-Mods for [Herdr Desktop](https://herdr.dev/) built on Herdr's own mod API: a Git panel, a file browser, a sidebar, a tab bar, a settings dialog, and PR and Linear panels. Install one, or all of them as the [Estro](#estro-all-of-them-in-one-layout) layout.
+Mods for [Herdr Desktop](https://herdr.dev/) built on Herdr's own mod API: a Git panel, a file browser, a sidebar, a tab bar, a settings dialog, and PR and issue panels. Install one, or all of them as the [Estro](#estro-all-of-them-in-one-layout) layout.
 
 ![Better Sidebar, Better Tabs, Better Files, Better Changes and Better Config together in Herdr](docs/gifs/better-mods.gif)
 
@@ -43,10 +43,10 @@ Git, files, spaces, tabs, settings, icons and alerts.
 
 ### Branch panels
 
-Your PR and your Linear issue, next to the branch.
+Your PR and your issues, next to the branch.
 
 - [Branch PR](branch-pr/README.md) (`branch-pr`): GitHub PR panel that shows what stands between a PR and a merge, lists its files with diffs, hands failures and comments to agents, and merges when ready. Needs Go 1.23+ and `gh`.
-- [Branch Issue](branch-issue/README.md) (`branch-issue`): Linear panel that follows the branch, edits state, priority and assignee, and opens a worktree with an agent holding the issue. Needs Go 1.23+ and a Linear API key.
+- [Branch Issue](branch-issue/README.md) (`branch-issue`): follows the branch in Linear (including edits and worktrees) or shows read-only GitHub Issues. Needs Go 1.23+ to install, plus a Linear API key or authenticated `gh`.
 
 ## Estro: all of them in one layout
 

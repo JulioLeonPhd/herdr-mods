@@ -21,7 +21,7 @@ A row filling the window, with no title bar, `canvas` behind and 1px `border` di
 | Files | Better Files | Browsing, reading files in the centre, and handing them to an agent |
 | Changes | Better Changes | What changed, staging, commits and diffs |
 | PRs | Branch PR | What's in the way of a merge, and handing it to an agent |
-| Issues | Branch Issue | Linear issues, and starting work on one |
+| Issues | Branch Issue | Linear issues and starting work on one, or read-only GitHub Issues |
 
 Better Config has no block: it's a dialog of every mod's settings, opened from the footer's Mod settings button.
 
@@ -37,7 +37,7 @@ Copy only `layouts/estro.json`. Then add each mod with its pointer's prompt, for
 
 Do that for `better-files`, `better-changes`, `better-sidebar`, `better-tabs`, `better-config`, `branch-pr` and `branch-issue`, reading each mod's README and telling the person what it can do first. Skip any step in a mod's recipe that places it in a layout, because Estro already does. Where a mod is already installed, update it instead.
 
-Anyone who doesn't want one of them can drop its button and block from the layout: Branch PR needs `gh` and Branch Issue a Linear key. Both need Go 1.23+ to build their helper.
+Anyone who doesn't want one of them can drop its button and block from the layout. Branch PR needs `gh`; Branch Issue needs a Linear key or, in GitHub mode, authenticated `gh`. Both need Go 1.23+ to build their helper.
 
 Then `herdr-app check` each mod and `layout.switch {"name": "estro"}`.
 

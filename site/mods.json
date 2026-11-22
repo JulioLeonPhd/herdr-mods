@@ -20,7 +20,7 @@
       "filter": "branch",
       "mods": [
         { "slug": "branch-pr", "title": "Branch PR", "generated": true, "needs": ["Go 1.23+", "Git", "`gh`"] },
-        { "slug": "branch-issue", "title": "Branch Issue", "generated": true, "needs": ["Go 1.23+", "Git", "a Linear API key"] }
+        { "slug": "branch-issue", "title": "Branch Issue", "generated": true, "needs": ["Go 1.23+", "Git", "a Linear API key or authenticated `gh`"] }
       ]
     },
     {
