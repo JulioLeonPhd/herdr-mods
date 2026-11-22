@@ -14,19 +14,29 @@ const source = FILES.map((f) => fs.readFileSync(path.join(dir, f), 'utf8'))
   .replace(/^export /gm, '')
   + '\nObject.assign(globalThis, { person, who, agentName, slug, folderName });';
 
-function harness({ storage = new Map(), exec, hc, known = [], checkout, readTextFile, readGitHubIssues } = {}) {
+function harness({ storage = new Map(), exec, hc, known = [], checkout, readTextFile, readGitHubIssues, singleUse = false } = {}) {
   let receiveCommand;
   const pending = [], timers = [], after = [], ran = [], sent = [], opened = [];
   const cx = { focus_handle: () => ({ focus() {} }), stop_propagation() {}, notify() {}, open_url: (u) => opened.push(u), write_to_clipboard() {}, spawn(fn) { pending.push(fn(cx)); }, timer: { every(_ms, fn) { timers.push(fn); }, after(_ms, fn) { after.push(fn); } } };
+  const attached = new WeakMap();
   function el() {
     const data = { nodes: [], handlers: {} };
     const proxy = new Proxy(data, {
       get(t, k) {
         if (k in t) return t[k];
-        if (k === 'child' || k === 'trigger' || k === 'content') return (c) => { t.nodes.push(c); return proxy; };
-        if (k === 'children') return (c) => { t.nodes.push(...c); return proxy; };
-        if (k === 'when') return (b, f) => { if (b) f(proxy); return proxy; };
         return (...a) => {
+          assert.ok(!attached.get(proxy), `cannot mutate attached element ${t.elementId ?? '(unnamed)'}`);
+          if (k === 'child' || k === 'children' || k === 'trigger' || k === 'content') {
+            const children = k === 'children' ? a[0] : a;
+            for (const child of children) {
+              if (attached.has(child)) {
+                assert.ok(!attached.get(child), `cannot reuse attached element ${child.elementId ?? '(unnamed)'}`);
+                attached.set(child, true);
+              }
+              t.nodes.push(child);
+            }
+          }
+          if (k === 'when' && a[0]) a[1](proxy);
           if (k === 'id') t.elementId = a[0];
           if (k === 'on_click') t.handlers.click = a[0];
           if (k === 'on_key_down') t.handlers.key = a[0];
@@ -36,6 +46,7 @@ function harness({ storage = new Map(), exec, hc, known = [], checkout, readText
         };
       },
     });
+    if (singleUse) attached.set(proxy, false);
     return proxy;
   }
   const state = ({ value = '' } = {}) => ({ text: value, value() { return this.text; }, set_value(v) { this.text = v; }, handlers: {}, on(e, f) { this.handlers[e] = f; }, focus() {}, set_selected_range(r) { this.selected = r; } });
@@ -174,6 +185,7 @@ test('GitHub opt-in waits for settings and opens read-only issue rows', async ()
   const folders = [];
   const linearCommands = [];
   const h = harness({
+    singleUse: true,
     checkout: { id: 'space', active: true, folder: '/repo', branch: 'issue-13' },
     readTextFile: () => new Promise((resolve) => { configure = resolve; }),
     readGitHubIssues: async (sp) => {
@@ -206,11 +218,13 @@ test('GitHub opt-in waits for settings and opens read-only issue rows', async ()
 test('GitHub refresh drops the old checkout request and recovers from errors or empty results', async () => {
   const requests = [];
   const h = harness({
+    singleUse: true,
     checkout: { id: 'space', active: true, folder: '/first' },
     readTextFile: async () => '{"settings":{"provider":"github"}}',
     readGitHubIssues: (sp) => new Promise((resolve, reject) => requests.push({ folder: sp.folder, resolve, reject })),
   });
   await settle();
+  assert.match(strings(h.mod.render()), /Loading GitHub issues/);
   h.live.spaces[0].folder = '/second';
   h.tick();
   same(requests.map(({ folder }) => folder), ['/first', '/second']);
@@ -234,6 +248,9 @@ test('GitHub refresh drops the old checkout request and recovers from errors or 
   });
   await h.flush();
   assert.match(strings(h.mod.render()), /Could not read linked issues\.[\s\S]*No open issues/);
+  h.live.spaces = [];
+  h.tick();
+  assert.match(strings(h.mod.render()), /No active checkout/);
 });
 
 test('a missing key takes over the panel, and can be retried', () => {

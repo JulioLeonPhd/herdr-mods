@@ -34,11 +34,10 @@ export function renderGitHubPanel(root, { data, error, loading }, settingsProble
     root.child(Message(`mod.json settings: ${settingsProblems.join("; ")}`, true));
   if (loading && !data) return root.child(Busy("Loading GitHub issues…"));
   const list = v_flex().id("github-issue-list").flex_1().min_h(0).overflow_y_scrollbar().p(6);
-  root.child(list);
   if (error) list.child(Message(error, true).id("github-issue-error"));
   if (!data) {
     if (!error) list.child(Message("No active checkout."));
-    return root;
+    return root.child(list);
   }
   const { repository, linked, items, linkedWarning } = data;
   list.child(Message(repository));
@@ -46,5 +45,5 @@ export function renderGitHubPanel(root, { data, error, loading }, settingsProble
     linkedWarning ? null : "No linked issues.");
   if (linkedWarning) list.child(Message(linkedWarning, true).id("github-linked-warning"));
   issueSection(list, "github-open", "Open issues", items, repository, "No open issues.");
-  return root;
+  return root.child(list);
 }
