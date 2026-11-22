@@ -1,5 +1,5 @@
-// Branch Issue: a Linear sidebar, for the current branch and for everything you can
-// see. The class is built from separate files, so a method used here may live in:
+// Branch Issue: a sidebar for the current checkout and its issue tracker.
+// The Linear methods are built from separate files, so a method used here may live in:
 //   state/saved.js        filters, the open issue and tabs across reloads
 //   linear/discovery.js   which issues this copy is looking at
 //   linear/reads.js       loading lists and issues through the helper
@@ -27,7 +27,9 @@ import { detailMethods } from "./views/detail.js";
 import { commentMethods } from "./views/comments.js";
 import { worktreeViewMethods } from "./views/worktrees.js";
 import { keyProblem, panelShown } from "./linear/model.js";
-import { Panel } from "./views/ui.js";
+import { Busy, Panel } from "./views/ui.js";
+import { readGitHubIssues } from "./github/reads.js";
+import { renderGitHubPanel } from "./github/panel.js";
 
 const CONTEXT_POLL_MS = 1000;
 const REFRESH_INTERVAL_MS = 60000;
@@ -35,6 +37,7 @@ const FIRST_LOAD_LIMIT_MS = 30000;
 const NOTICE_MS = 5000;
 // Preferences a person may change in the installed mod.json under `settings`.
 const DEFAULT_SETTINGS = {
+  provider: "linear",
   refresh: { every: "60s", search_debounce: "450ms" },
   branch: { max_identifiers: 4 },
   list: { default: { scope: "mine", state: "active", team: "" } },
@@ -84,7 +87,6 @@ class LinearIssues extends View {
     this.state = DEFAULT_SETTINGS.list.default.state;
     this.team = DEFAULT_SETTINGS.list.default.team;
     this.section = "overview";
-    this.applySettings(cx);
     this.search = InputState.new({ placeholder: "Search · ENG-123, 123 or text" });
     this.search.on("change", (_e, cx) => {
       if (!this.restoringSearch) this.searchChanged(cx);
@@ -104,9 +106,7 @@ class LinearIssues extends View {
     });
     this.startPolling(cx);
     this.listenForCommands(cx);
-
-    const space = activeSpace();
-    this.changeSpace(space, spaceContextKey(space), cx);
+    this.applySettings(cx);
   }
 
   // Read the installed mod.json once; list defaults apply until a saved view exists.
@@ -115,29 +115,58 @@ class LinearIssues extends View {
       const { settings, problems } = await loadSettings("branch-issue", DEFAULT_SETTINGS);
       this.settings = settings;
       this.settingsProblems = problems;
-      const d = DEFAULT_SETTINGS.list.default;
-      const untouched =
-        !this.viewWasSaved &&
-        this.scope === d.scope &&
-        this.state === d.state &&
-        this.team === d.team;
-      const wanted = settings.list.default;
-      if (
-        untouched &&
-        (wanted.scope !== d.scope || wanted.state !== d.state || wanted.team !== d.team)
-      ) {
-        this.scope = wanted.scope;
-        this.state = wanted.state;
-        this.team = wanted.team;
-        // The first load may already have used the shipped defaults.
-        if (this.view === "all") this.loadList(cx);
+      if (settings.provider !== "linear" && settings.provider !== "github")
+        this.settingsProblems.push('settings.provider must be "linear" or "github"');
+      this.settingsReady = true;
+      const sp = activeSpace();
+      if (settings.provider === "github") this.refreshGitHub(cx, sp);
+      else this.changeSpace(sp, spaceContextKey(sp), cx);
+      cx.notify();
+    });
+  }
+
+  refreshGitHub(cx, sp = activeSpace()) {
+    const key = spaceContextKey(sp);
+    if (this.github?.key === key && this.github.loading) return;
+    const request = {
+      key,
+      loading: Boolean(sp?.folder),
+      refreshed: Date.now(),
+      data: this.github?.key === key ? this.github.data : undefined,
+    };
+    this.github = request;
+    cx.notify();
+    if (!request.loading) return;
+    cx.spawn(async (cx) => {
+      let data, error;
+      try {
+        data = await readGitHubIssues(sp);
+      } catch (e) {
+        error = e.message || String(e);
       }
+      if (this.github !== request) return;
+      const current = activeSpace();
+      if (spaceContextKey(current) !== key) {
+        this.refreshGitHub(cx, current);
+        return;
+      }
+      Object.assign(request, { loading: false, data, error });
       cx.notify();
     });
   }
 
   startPolling(cx) {
     cx.timer.every(CONTEXT_POLL_MS, (cx) => {
+      if (!this.settingsReady) return;
+      const sp = activeSpace();
+      const key = spaceContextKey(sp);
+      const interval = duration(this.settings.refresh.every, REFRESH_INTERVAL_MS);
+      if (this.settings.provider === "github") {
+        const due = sp?.folder && this.github && !this.github.loading &&
+          Date.now() - this.github.refreshed > interval && panelShown(layout(), "branch-issue");
+        if (key !== this.github?.key || due) this.refreshGitHub(cx, sp);
+        return;
+      }
       // A read that never answers mustn't leave the tabs locked; the helper itself
       // gives up after 26 seconds.
       if (Date.now() - this.contextSince > FIRST_LOAD_LIMIT_MS) {
@@ -152,8 +181,6 @@ class LinearIssues extends View {
         this.notice = null;
         cx.notify();
       }
-      const sp = activeSpace();
-      const key = spaceContextKey(sp);
       if (key !== this.spaceKey) this.changeSpace(sp, key, cx);
       this.rememberView();
       const minute = Math.floor(Date.now() / 60000);
@@ -161,9 +188,7 @@ class LinearIssues extends View {
         this.updatedMinute = minute;
         cx.notify();
       }
-      const due =
-        Date.now() - (this.refreshed ?? 0) >
-        duration(this.settings.refresh.every, REFRESH_INTERVAL_MS);
+      const due = Date.now() - (this.refreshed ?? 0) > interval;
       // Coming back to a hidden panel makes it due at once, if it's been a while.
       if (!this.busy && !this.mutating && due && panelShown(layout(), "branch-issue"))
         this.refresh(cx);
@@ -174,7 +199,10 @@ class LinearIssues extends View {
     cx.spawn(async (cx) => {
       for (;;) {
         const command = await nextCommand();
-        if (command === "refresh") this.refresh(cx);
+        if (command === "refresh" && this.settingsReady) {
+          if (this.settings.provider === "github") this.refreshGitHub(cx);
+          else this.refresh(cx);
+        }
         cx.notify();
       }
     });
@@ -186,6 +214,9 @@ class LinearIssues extends View {
 
   render() {
     const root = Panel({ id: "issue-root" });
+    if (!this.settingsReady) return root.child(Busy("Loading issue settings…"));
+    if (this.settings.provider === "github")
+      return renderGitHubPanel(root, this.github, this.settingsProblems, (cx) => this.refreshGitHub(cx));
     const problem = keyProblem(this.error);
     if (problem) return this.renderKeyProblem(root, problem);
     if (this.issue) return this.renderDetail(root);
