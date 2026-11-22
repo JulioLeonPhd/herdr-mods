@@ -10,6 +10,7 @@ import {
   hunkKey,
   isImage,
   isMarkdown,
+  REFERENCE,
   languageOf,
   markdownBlocks,
   parentOf,
@@ -680,15 +681,30 @@ export const viewerMethods = {
       .py(16)
       .gap(12)
       .children(
-        this.previewBlocks().map((block, i) =>
-          block.type === "image"
-            ? this.previewImage(block, `viewer-image-${i}`)
-            : block.type === "images"
-              ? this.previewImages(block, i)
-              : block.type === "code"
-                ? this.previewCode(block, i)
-                : Markdown(`viewer-md-${this.viewerId}-${i}`, block.text).on_link_click((url, cx) => this.followLink(url, cx)),
-        ),
+        this.previewBlocks().map((block, i) => {
+          if (block.type === "image") return this.previewImage(block, `viewer-image-${i}`);
+          if (block.type === "images") return this.previewImages(block, i);
+          if (block.type === "code") return this.previewCode(block, i);
+
+          const id = `viewer-md-${this.viewerId}-${i}`;
+          const markdown = (key, text) => Markdown(key, text).on_link_click((url, cx) => this.followLink(url, cx));
+          // shortcut: style leading ATX headings; use native heading styles when TextView exposes them.
+          const heading = /^( {0,3}(#{1,6})(?:[ \t]+[^\n]*|(?=\n|$)))(?:\n|$)/.exec(block.text);
+          const section = i > 0 && Boolean(heading);
+          if (!heading || heading[2].length > 2) return markdown(id, block.text).when(section, (el) => el.mt(12));
+
+          const body = block.text.slice(heading[0].length);
+          const lines = body.split("\n").filter((line) => line.trim());
+          const references = lines.filter((line) => REFERENCE.test(line));
+          return v_flex()
+            .when(section, (el) => el.mt(12))
+            .gap(10)
+            .child(
+              div().border_b_1().border_color(theme().border).pb(5)
+                .child(markdown(id, [heading[1], "", ...references].join("\n"))),
+            )
+            .when(lines.length > references.length, (el) => el.child(markdown(`${id}-body`, body)));
+        }),
       );
   },
 
