@@ -62,7 +62,7 @@ export function resolvePath(folder, link) {
 // backticks or tildes, and what follows, the language.
 const FENCE = /^(\s*)(`{3,}|~{3,})(.*)$/;
 // `[label]: url "title"`, which reference links and images are resolved against.
-const REFERENCE = /^ {0,3}\[([^\]]+)\]:\s*<?([^\s>]+)>?(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*$/;
+export const REFERENCE = /^ {0,3}\[([^\]]+)\]:\s*<?([^\s>]+)>?(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*$/;
 const HEADING = /^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/;
 const LIST_ITEM = /^([*+-]|\d{1,9}[.)])\s+/;
 
