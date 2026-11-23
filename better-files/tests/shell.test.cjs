@@ -131,6 +131,63 @@ test('pickCopyImage windows passes the same five arguments to a PowerShell port'
   assert.ok(script.includes('(Split-Path -Leaf $o) -ne $name'));
 });
 
+// --- pickFetchImage ---
+// Contract: a picture's web address and its copy's path without an extension; prints the copy's path.
+
+test('pickFetchImage keeps the POSIX curl script and bounds PowerShell downloads', async () => {
+  const { pickFetchImage } = await load();
+  const url = 'https://img.shields.io/badge/A-blue';
+  const posix = pickFetchImage(url, '/app/mods/better-files/.cache/web-123', 'macos');
+  assert.equal(posix.program, 'sh');
+  assert.deepEqual(posix.args.slice(2), ['fetch-image', url, '/app/mods/better-files/.cache/web-123']);
+  assert.equal(posix.args[1], `for c in "$2".*; do case "$c" in *.part) continue;; esac; [ -f "$c" ] && [ -n "$(find "$c" -mmin -1440)" ] && { printf %s "$c"; exit 0; }; done
+mkdir -p -- "$(dirname -- "$2")" && t="$2.part" || exit 1
+type=$(curl -fsSL --max-time 20 --max-filesize 5000000 -o "$t" -w '%{content_type}' -- "$1") || exit 1
+case "$type" in *svg*) e=svg;; *png*) e=png;; *jpeg*|*jpg*) e=jpg;; *gif*) e=gif;; *webp*) e=webp;; *) exit 1;; esac
+mv -f -- "$t" "$2.$e" && printf %s "$2.$e"`);
+  const win = pickFetchImage(url, 'C:\\app\\.cache\\web-123', 'windows');
+  assert.equal(win.program, 'powershell.exe');
+  assert.deepEqual(win.args.slice(0, 3), ['-NoProfile', '-NoLogo', '-Command']);
+  assert.ok(win.args[3].includes('[Uri]::UnescapeDataString($args[0])'));
+  assert.ok(win.args[3].endsWith(`'${encodeURIComponent(url)}' '${encodeURIComponent('C:\\app\\.cache\\web-123')}'`));
+  assert.ok(!win.args[3].includes(url), 'web addresses are passed percent-encoded, never as code');
+  assert.ok(win.args[3].includes("http','https"));
+  assert.ok(win.args[3].includes('AddDays(-1)'));
+  assert.ok(win.args[3].includes('--max-time 20 --max-filesize 5000000'));
+  assert.ok(win.args[3].includes("--proto '=http,https' --proto-redir '=http,https'"));
+  const quoted = pickFetchImage("https://example.com/it's", 'C:\\x', 'windows');
+  assert.ok(quoted.args[3].includes("'https%3A%2F%2Fexample.com%2Fit%27s'"));
+});
+
+test('Windows fetch script downloads a loopback badge once without sh', { skip: process.platform !== 'win32' }, async () => {
+  const { pickFetchImage } = await load();
+  const http = require('node:http');
+  const os = require('node:os');
+  const execFile = require('node:util').promisify(require('node:child_process').execFile);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "better-files ‘badge’'s "));
+  let requests = 0;
+  const server = http.createServer((_req, res) => {
+    requests++;
+    res.writeHead(200, { 'Content-Type': 'image/svg+xml' });
+    res.end('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+  });
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${server.address().port}/badge/it's-‘quoted’`;
+    const base = `${dir.replaceAll('\\', '/')}/web-test`;
+    const { program, args } = pickFetchImage(url, base, 'windows');
+    const fetch = () => execFile(program, args, { encoding: 'utf8', timeout: 30000 });
+    const { stdout } = await fetch();
+    assert.equal(stdout, `${base}.svg`);
+    assert.equal(fs.readFileSync(stdout, 'utf8'), '<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+    assert.equal((await fetch()).stdout, stdout, 'a copy under a day old is reused');
+    assert.equal(requests, 1);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // --- pickRm ---
 
 test('pickRm macOS is byte-for-byte rm -f --', async () => {
