@@ -43,9 +43,22 @@ printf %s "$name"`;
 // --- Cache cleanup on tab close ---
 // Missing paths are harmless, but a failed removal must be reported for retry.
 
+// --- Web pictures (markdown) ---
+// $1 a picture's web address, $2 its copy without an extension. A copy under a day old is used
+// as it is; otherwise it's downloaded (5 MB and 20 s at most) and named by the type the server
+// gives, which is how a badge with no extension in its address is known as SVG. A download that
+// fails leaves its `.part`, which the next try writes over. Prints the copy's path. Its name is
+// kept when it's downloaded again, so Herdr may show the old bytes until it restarts: a badge.
+export const FETCH_IMAGE = `for c in "$2".*; do case "$c" in *.part) continue;; esac; [ -f "$c" ] && [ -n "$(find "$c" -mmin -1440)" ] && { printf %s "$c"; exit 0; }; done
+mkdir -p -- "$(dirname -- "$2")" && t="$2.part" || exit 1
+type=$(curl -fsSL --max-time 20 --max-filesize 5000000 -o "$t" -w '%{content_type}' -- "$1") || exit 1
+case "$type" in *svg*) e=svg;; *png*) e=png;; *jpeg*|*jpg*) e=jpg;; *gif*) e=gif;; *webp*) e=webp;; *) exit 1;; esac
+mv -f -- "$t" "$2.$e" && printf %s "$2.$e"`;
+
 export const posix = {
   listing: (path, perFolder) => ({ program: "sh", args: ["-c", listingSh(perFolder), "files", path] }),
   cleanupListing: (path, offset) => ({ program: "sh", args: ["-c", CLEANUP_LISTING, "cleanup-list", path, String(offset)] }),
   copyImage: (src, cacheDir, start, ext, old, retain = false) => ({ program: "sh", args: ["-c", COPY_IMAGE, "copy-image", src, cacheDir, start, ext, old, ...(retain ? ["retain"] : [])] }),
+  fetchImage: (url, base) => ({ program: "sh", args: ["-c", FETCH_IMAGE, "fetch-image", url, base] }),
   removeCopies: (paths) => ({ program: "rm", args: ["-f", "--", ...paths] }),
 };

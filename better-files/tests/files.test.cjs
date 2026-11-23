@@ -1292,6 +1292,31 @@ test('malformed Markdown never throws', async () => {
 
 const MD = { path: '/repo/docs/guide.md', root: '/repo', on: null };
 const mdWorld = (o = {}) => ready({ mode: 'viewer', viewer: 'v', file: MD, texts: { '/repo/docs/guide.md': '# Guide\n\nSee [next](next.md).\n\n![Shot](pics/shot.PNG)\n\nEnd' }, ...o });
+test('Windows Markdown previews fetch badges and copy relative images without sh', async () => {
+  const badge = "https://img.shields.io/badge/it's-blue?style=flat&logo=node.js";
+  const h = await mdWorld({
+    platform: 'windows',
+    texts: { '/repo/docs/guide.md': `![Badge](${badge})\n\n![Local](pics/shot.png)\n\n![Blocked](ftp://example.com/blocked.png)` },
+    execOverride: (bin, args) => {
+      if (bin === 'sh') throw new Error('sh not installed');
+      if (bin !== 'powershell.exe') return undefined;
+      if (args[3].includes('curl.exe')) {
+        const base = decodeURIComponent(args[3].match(/\} '[^']+' '([^']+)'$/)?.[1] ?? '');
+        return base ? { code: 0, stdout: `${base}.svg` } : { code: 1, stdout: '' };
+      }
+      if (args[3].includes('Get-FileHash')) return { code: 0, stdout: 'v-m1-111-3.png' };
+      return undefined;
+    },
+  });
+  assert.ok(!h.execs.some(([bin]) => bin === 'sh'));
+  const commands = h.execs.filter(([bin]) => bin === 'powershell.exe').map((e) => e[4]);
+  assert.equal(commands.filter((s) => s.includes('curl.exe')).length, 1, 'only the https picture is fetched');
+  assert.ok(commands.some((s) => s.includes("'/repo/docs/pics/shot.png'")));
+  const preview = strings(find(h.mod.render(), 'viewer-preview'));
+  assert.match(preview, /image:mods\/better-files\/\.cache\/web-[0-9a-f]+\.svg/);
+  assert.match(preview, /image:mods\/better-files\/\.cache\/v-m1-111-3\.png/);
+});
+
 
 test('a Markdown file opens in Preview; the toggle switches to Code and back, remembered per tab', async () => {
   const h = await mdWorld();

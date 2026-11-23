@@ -109,12 +109,38 @@ function detectEditorsPs(allEditors) {
   return { program: "powershell.exe", args: ["-NoProfile", "-NoLogo", "-Command", script] };
 }
 
+// The web-picture contract (see FETCH_IMAGE in posix.js) with curl.exe, which ships with
+// Windows 10 and later. Only http(s) is fetched, redirects included. The address and the copy's
+// path come percent-encoded, so no quote or `$` in an address can reach the script as code.
+const FETCH_IMAGE_PS = `$url=[Uri]::UnescapeDataString($args[0]); $base=[Uri]::UnescapeDataString($args[1])
+try {
+  $uri=[Uri]$url
+  if (-not $uri.IsAbsoluteUri -or $uri.Scheme -notin @('http','https')) { exit 1 }
+  foreach ($c in (Get-ChildItem -LiteralPath (Split-Path -Parent $base) -Filter "$(Split-Path -Leaf $base).*" -File -ErrorAction SilentlyContinue)) {
+    if ($c.Extension -ne '.part' -and $c.LastWriteTimeUtc -gt [DateTime]::UtcNow.AddDays(-1)) { [Console]::Out.Write($base + $c.Extension); exit 0 }
+  }
+  $dir=Split-Path -Parent $base; New-Item -ItemType Directory -Force -Path $dir -ErrorAction Stop | Out-Null
+  $part="$base.part"
+  try {
+    $type=& curl.exe -fsSL --max-time 20 --max-filesize 5000000 --proto '=http,https' --proto-redir '=http,https' -o $part -w '%{content_type}' -- $url
+    if ($LASTEXITCODE -ne 0) { exit 1 }
+    $ext=if ($type -match 'svg') {'svg'} elseif ($type -match 'png') {'png'} elseif ($type -match 'jpe?g') {'jpg'} elseif ($type -match 'gif') {'gif'} elseif ($type -match 'webp') {'webp'} else { exit 1 }
+    $copy="$base.$ext"; Move-Item -LiteralPath $part -Destination $copy -Force -ErrorAction Stop
+    [Console]::Out.Write($copy)
+  } finally { Remove-Item -LiteralPath $part -Force -ErrorAction SilentlyContinue }
+} catch { exit 1 } finally { Remove-Item -LiteralPath "$base.part" -Force -ErrorAction SilentlyContinue }`;
+const psData = (s) => `'${encodeURIComponent(s).replaceAll("'", "%27")}'`;
+
 export const windows = {
   fileManager: "Explorer",
   listing: (path, perFolder) => powershell(listingPs(perFolder), [path]),
   cleanupListing: (path, offset) => powershell(CLEANUP_LISTING_PS, [path, offset]),
   index: (root, depth, bytes) => powershell(INDEX_PS, [root, depth, bytes]),
   copyImage: (src, cacheDir, start, ext, old, retain = false) => powershell(COPY_IMAGE_PS, [src, cacheDir, start, ext, old, ...(retain ? ["retain"] : [])]),
+  fetchImage: (url, base) => ({
+    program: "powershell.exe",
+    args: ["-NoProfile", "-NoLogo", "-Command", `& { ${FETCH_IMAGE_PS} } ${psData(url)} ${psData(base)}`],
+  }),
   removeCopies: (paths) => powershell(RM_PS, paths),
   openInEditor: (editor, path) => powershell(OPEN_IN_EDITOR_PS, [editor.exe, path]),
   openWithDefault: (path) => powershell(`Invoke-Item -LiteralPath $args[0]`, [path]),
